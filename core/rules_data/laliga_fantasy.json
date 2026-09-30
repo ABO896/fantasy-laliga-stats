@@ -1,0 +1,23 @@
+{
+  "source_url": "https://laligafantasy.zendesk.com/hc/es/categories/360000715714-Reglas-del-juego",
+  "retrieved_on": "2026-08-07",
+  "game": "LALIGA Fantasy (official, LaLiga Group International S.L.) — not Fantasy MARCA or any other fantasy game",
+  "doc": "docs/RULES-LALIGA-FANTASY.md",
+  "max_squad_size": 24,
+  "debt_limit_fraction": 0.2,
+  "cash_per_point": 100000,
+  "formations": [
+    { "name": "3-4-3", "POR": 1, "DEF": 3, "MED": 4, "DEL": 3, "premium": false },
+    { "name": "3-5-2", "POR": 1, "DEF": 3, "MED": 5, "DEL": 2, "premium": false },
+    { "name": "4-3-3", "POR": 1, "DEF": 4, "MED": 3, "DEL": 3, "premium": false },
+    { "name": "4-4-2", "POR": 1, "DEF": 4, "MED": 4, "DEL": 2, "premium": false },
+    { "name": "4-5-1", "POR": 1, "DEF": 4, "MED": 5, "DEL": 1, "premium": false },
+    { "name": "5-3-2", "POR": 1, "DEF": 5, "MED": 3, "DEL": 2, "premium": false },
+    { "name": "5-4-1", "POR": 1, "DEF": 5, "MED": 4, "DEL": 1, "premium": false },
+    { "name": "3-3-4", "POR": 1, "DEF": 3, "MED": 3, "DEL": 4, "premium": true },
+    { "name": "3-6-1", "POR": 1, "DEF": 3, "MED": 6, "DEL": 1, "premium": true },
+    { "name": "4-2-4", "POR": 1, "DEF": 4, "MED": 2, "DEL": 4, "premium": true },
+    { "name": "4-6-0", "POR": 1, "DEF": 4, "MED": 6, "DEL": 0, "premium": true },
+    { "name": "5-2-3", "POR": 1, "DEF": 5, "MED": 2, "DEL": 3, "premium": true }
+  ]
+}

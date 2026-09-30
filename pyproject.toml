@@ -1,0 +1,46 @@
+[project]
+name = "fantasy-laliga-stats"
+version = "0.1.0"
+description = "Personal, locally-run LaLiga Fantasy stats aggregator and squad tool."
+requires-python = ">=3.12"
+dependencies = [
+    "alembic>=1.19.0",
+    "beautifulsoup4[lxml]>=4.15.0",
+    "fastapi[standard]>=0.141.0,<0.142.0",
+    "httpx>=0.28.1",
+    "playwright>=1.62.0,<1.63.0",
+    "pydantic-settings>=2.14.2",
+    "sqlmodel>=0.0.39",
+    "tenacity>=9.1.4",
+]
+
+[tool.uv]
+package = false
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.1",
+    "ruff>=0.16.1",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+# Standing guard, not a fix for one past collision: this test tree has no
+# __init__.py files, and test modules under different directories (e.g.
+# tests/api/ and tests/core/) are free to share a basename. The default
+# "prepend" import mode can't tell same-named files in different packages
+# apart and fails collection when it happens. importlib mode imports each
+# file by its own path instead of a bare module name, so it doesn't matter.
+addopts = ["--import-mode=importlib"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+# Alembic generates these from its own template (`Union[...]` annotations, an
+# unsorted import block). Linting generated output is permanent churn — every
+# new revision would need hand-editing to satisfy rules its generator ignores.
+exclude = ["migrations"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]

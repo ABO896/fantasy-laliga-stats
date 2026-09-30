@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Just a moment...</title>
+</head>
+<body class="no-js">
+  <!--
+    Synthetic bot-challenge fixture (tests/scraper/test_errors.py). This is
+    NOT a captured real block from analiticafantasy.com — per
+    docs/SCRAPING-POLICY.md, this project never deliberately provokes a
+    genuine block against the live site. It reproduces the shape a common
+    challenge-interstitial response takes (200 status, "checking your
+    browser" copy, no player table, no initialPlayers payload) so
+    classify_response() is testable offline.
+  -->
+  <div id="cf-wrapper">
+    <div class="cf-alert cf-alert-error cf-cookie-error" id="cookie-alert" data-translate="enable_cookies">
+      Please enable cookies.
+    </div>
+    <div id="challenge-running">
+      Checking your browser before accessing www.analiticafantasy.com.
+    </div>
+    <div class="attribution">
+      Attention Required! | Access denied
+    </div>
+  </div>
+</body>
+</html>

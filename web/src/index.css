@@ -1,0 +1,529 @@
+@import "tailwindcss";
+@import "@fontsource/barlow/400.css";
+@import "@fontsource/barlow/500.css";
+@import "@fontsource/barlow/600.css";
+@import "@fontsource/barlow/700.css";
+@import "@fontsource/barlow-condensed/500.css";
+@import "@fontsource/barlow-condensed/600.css";
+@import "@fontsource/barlow-condensed/700.css";
+
+/* ------------------------------------------------------------------------
+   Design tokens — Phase 12 visual identity ("the touchline board").
+   docs/superpowers/specs/2026-09-28-visual-overhaul-design.md explains the
+   choices. Every colour here is redefined for dark mode further down; the
+   components read them through Tailwind utilities (bg-canvas, text-ink…)
+   or var(--color-*) and never hard-code a hex value.
+   ------------------------------------------------------------------------ */
+@theme {
+  /* Spacing scale — .planning/phases/01-player-data-browser/01-UI-SPEC.md */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+  --spacing-2xl: 48px;
+  --spacing-3xl: 64px;
+
+  /* KNOWN COLLISION: do not use max-w-*, w-*, h-*, min-w-*, or min-h-*
+     with any of the named sizes above (xs, sm, md, lg, xl, 2xl, 3xl).
+     Tailwind v4 ships a default --container-* scale for exactly these
+     names (used by max-w-* and w-* to mean 48rem/28rem/etc.), but its
+     shared sizing-utility resolution checks the --spacing-<name> scale
+     FIRST and wins whenever a matching key exists there. So once this
+     file defines --spacing-md/--spacing-3xl/etc. above, max-w-md
+     silently becomes 16px and max-w-3xl becomes 64px instead of the
+     intended 28rem/48rem. Confirmed two ways: computed style read in a
+     real browser, and the compiled production CSS with a custom
+     --container-* theme addition present (that addition changed
+     nothing, spacing still won). Defining --container-* here does NOT
+     fix the collision; the only verified fix is an arbitrary value,
+     e.g. max-w-[28rem] instead of max-w-md. See HealthPage.tsx and
+     EmptyState.tsx for the two places this bit us; 01-06-SUMMARY.md has
+     the full account. A structural fix (renaming this spacing scale
+     off the colliding names) would touch every gap-*, p-*, and m-*
+     callsite across web/src and was judged out of scope for this fix.
+     This comment is the guard against the same collision recurring
+     until that larger cleanup happens. */
+
+  /* Colour — surfaces. Canvas is the page, surface is a panel/table on it,
+     surface-alt is a quiet fill (table heads, chips, skeletons). */
+  --color-canvas: #eef1ec;
+  --color-surface: #ffffff;
+  --color-surface-alt: #e6ebe5;
+  --color-line: #d3dbd3;
+  --color-ink: #16211c;
+  --color-neutral: #5d6b63;
+
+  /* Colour — meaning. Accent is the grass: links, primary actions, and
+     "better / rising". Destructive is "falling / failed", warning is doubt. */
+  --color-accent: #0b7545;
+  --color-accent-strong: #075c35;
+  --color-on-accent: #ffffff;
+  --color-destructive: #c0392f;
+  --color-warning: #a8650a;
+  /* The one decorative accent: a referee's yellow card. Used only for the
+     active nav marker and the watchlist star. */
+  --color-card: #f2c230;
+
+  /* Colour — the touchline board (header) and the pitch. */
+  --color-board: #0f2a1f;
+  --color-board-ink: #e9f0ea;
+  --color-board-muted: #9db3a5;
+  --color-pitch: #2c7a47;
+  --color-pitch-stripe: #307f4c;
+  --color-pitch-line: rgb(255 255 255 / 0.55);
+
+  /* Colour — positions, the same four everywhere a position is shown.
+     Traditional fantasy coding: keeper amber, defence blue, midfield
+     green, attack red. `-soft` is the badge fill. */
+  --color-pos-por: #a86f00;
+  --color-pos-por-soft: #fbefcf;
+  --color-pos-def: #245fa6;
+  --color-pos-def-soft: #dde9f8;
+  --color-pos-med: #1d7a45;
+  --color-pos-med-soft: #d8efdf;
+  --color-pos-del: #b3372d;
+  --color-pos-del-soft: #f8dcd8;
+
+  /* Chart series */
+  --color-chart-1: var(--color-accent);
+  --color-chart-grid: var(--color-line);
+
+  /* Typography — Barlow for text and figures (it carries tabular
+     numerals), Barlow Condensed for titles, table heads and big numbers:
+     condensed type is what lets a 15-column table breathe. */
+  --font-sans: "Barlow", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-display: "Barlow Condensed", "Barlow", ui-sans-serif, system-ui, sans-serif;
+
+  --text-display: 2rem;
+  --text-display--line-height: 1.05;
+  --text-title: 1.375rem;
+  --text-title--line-height: 1.15;
+
+  /* Radius — small for inline marks, medium for controls and cards,
+     large only for the pitch. */
+  --radius-sm: 3px;
+  --radius-md: 6px;
+  --radius-lg: 12px;
+
+  /* Elevation — two levels only. */
+  --shadow-panel: 0 1px 0 rgb(15 42 31 / 0.04), 0 1px 3px rgb(15 42 31 / 0.06);
+  --shadow-pop: 0 8px 28px rgb(15 42 31 / 0.18), 0 2px 6px rgb(15 42 31 / 0.08);
+}
+
+/* Dark theme — "under the floodlights". Same roles, re-lit. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-canvas: #0d1512;
+    --color-surface: #141f1a;
+    --color-surface-alt: #1c2a23;
+    --color-line: #2a3a32;
+    --color-ink: #e3ebe5;
+    --color-neutral: #95a79c;
+
+    --color-accent: #45c483;
+    --color-accent-strong: #6fd8a0;
+    --color-on-accent: #06200f;
+    --color-destructive: #f07a6e;
+    --color-warning: #e7ad4a;
+    --color-card: #f2c230;
+
+    --color-board: #08130e;
+    --color-board-ink: #e3ebe5;
+    --color-board-muted: #86a092;
+    --color-pitch: #1d5433;
+    --color-pitch-stripe: #205a37;
+    --color-pitch-line: rgb(255 255 255 / 0.35);
+
+    --color-pos-por: #f0bb4a;
+    --color-pos-por-soft: #3a2e12;
+    --color-pos-def: #7fb0ec;
+    --color-pos-def-soft: #172a42;
+    --color-pos-med: #62cf8e;
+    --color-pos-med-soft: #143324;
+    --color-pos-del: #f2877c;
+    --color-pos-del-soft: #3d1c19;
+
+    --shadow-panel: 0 1px 0 rgb(0 0 0 / 0.3);
+    --shadow-pop: 0 10px 32px rgb(0 0 0 / 0.55);
+  }
+}
+
+@layer base {
+  html {
+    color-scheme: light dark;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    font-family: var(--font-sans);
+    background-color: var(--color-canvas);
+    color: var(--color-ink);
+    font-size: 15px;
+    line-height: 1.45;
+    font-feature-settings: "liga" 1;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    letter-spacing: 0.005em;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-accent);
+    outline-offset: 2px;
+  }
+
+  input[type="checkbox"] {
+    accent-color: var(--color-accent);
+    width: 15px;
+    height: 15px;
+  }
+
+  input:not([type="checkbox"]),
+  select {
+    background-color: var(--color-surface);
+    color: var(--color-ink);
+    border-color: var(--color-line);
+  }
+
+  ::selection {
+    background: color-mix(in srgb, var(--color-accent) 30%, transparent);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.01ms !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  /* ---- Page furniture ------------------------------------------------ */
+  .page-title {
+    font-family: var(--font-display);
+    font-size: var(--text-display);
+    line-height: var(--text-display--line-height);
+    font-weight: 700;
+  }
+
+  .section-title {
+    font-family: var(--font-display);
+    font-size: var(--text-title);
+    line-height: var(--text-title--line-height);
+    font-weight: 600;
+  }
+
+  .subsection-title {
+    font-family: var(--font-display);
+    font-size: 1.0625rem;
+    line-height: 1.2;
+    font-weight: 600;
+  }
+
+  .muted {
+    color: var(--color-neutral);
+  }
+
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* ---- Controls ------------------------------------------------------ */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    border-radius: var(--radius-md);
+    padding: 7px 14px;
+    font-size: 14px;
+    font-weight: 600;
+    line-height: 1.2;
+    white-space: nowrap;
+    border: 1px solid transparent;
+    transition:
+      background-color 120ms,
+      border-color 120ms,
+      color 120ms;
+  }
+  .btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+  .btn-primary {
+    background: var(--color-accent);
+    color: var(--color-on-accent);
+  }
+  .btn-primary:not(:disabled):hover {
+    background: var(--color-accent-strong);
+  }
+  .btn-secondary {
+    background: var(--color-surface);
+    border-color: var(--color-line);
+    color: var(--color-ink);
+  }
+  .btn-secondary:not(:disabled):hover {
+    border-color: var(--color-neutral);
+  }
+  .btn-ghost {
+    background: transparent;
+    color: var(--color-neutral);
+  }
+  .btn-ghost:not(:disabled):hover {
+    color: var(--color-ink);
+    background: var(--color-surface-alt);
+  }
+  .btn-sm {
+    padding: 3px 9px;
+    font-size: 12px;
+    border-radius: var(--radius-sm);
+  }
+
+  .link {
+    color: var(--color-accent);
+    font-weight: 500;
+    text-underline-offset: 2px;
+  }
+  .link:hover {
+    text-decoration: underline;
+  }
+
+  .field {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    padding: 5px 9px;
+    font-size: 14px;
+    line-height: 1.3;
+    min-width: 0;
+  }
+  .field:hover {
+    border-color: var(--color-neutral);
+  }
+  .field:focus {
+    outline: 2px solid color-mix(in srgb, var(--color-accent) 60%, transparent);
+    outline-offset: 0;
+    border-color: var(--color-accent);
+  }
+
+  .field-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-neutral);
+  }
+
+  /* Segmented toggle (tabs, position pickers, window presets). */
+  .segmented {
+    display: inline-flex;
+    flex-wrap: wrap;
+    gap: 2px;
+    padding: 2px;
+    border-radius: var(--radius-md);
+    background: var(--color-surface-alt);
+  }
+  .segmented > button {
+    border-radius: 4px;
+    padding: 4px 10px;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--color-neutral);
+  }
+  .segmented > button:hover {
+    color: var(--color-ink);
+  }
+  .segmented > button[aria-pressed="true"],
+  .segmented > button[aria-current="page"] {
+    background: var(--color-surface);
+    color: var(--color-ink);
+    box-shadow: var(--shadow-panel);
+  }
+
+  /* ---- Badges -------------------------------------------------------- */
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    padding: 1px 6px;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+  }
+
+  .pos-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 2.6em;
+    border-radius: var(--radius-sm);
+    padding: 1px 5px;
+    font-family: var(--font-display);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.03em;
+    line-height: 1.3;
+    color: var(--color-neutral);
+    background: var(--color-surface-alt);
+  }
+  .pos-badge[data-pos="POR"] {
+    color: var(--color-pos-por);
+    background: var(--color-pos-por-soft);
+  }
+  .pos-badge[data-pos="DEF"] {
+    color: var(--color-pos-def);
+    background: var(--color-pos-def-soft);
+  }
+  .pos-badge[data-pos="MED"] {
+    color: var(--color-pos-med);
+    background: var(--color-pos-med-soft);
+  }
+  .pos-badge[data-pos="DEL"] {
+    color: var(--color-pos-del);
+    background: var(--color-pos-del-soft);
+  }
+
+  /* ---- Tables -------------------------------------------------------- */
+  /* Wide content scrolls here, never the page (UI-02). */
+  .table-scroll {
+    max-width: 100%;
+    overflow-x: auto;
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-md);
+    background: var(--color-surface);
+    box-shadow: var(--shadow-panel);
+  }
+
+  .data-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 14px;
+  }
+  .data-table th,
+  .data-table td {
+    padding: 6px 10px;
+    text-align: left;
+    vertical-align: middle;
+  }
+  .data-table thead th {
+    background: var(--color-surface-alt);
+    color: var(--color-neutral);
+    font-family: var(--font-display);
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 0.01em;
+    white-space: nowrap;
+    border-bottom: 1px solid var(--color-line);
+  }
+  .data-table tbody tr {
+    border-bottom: 1px solid var(--color-line);
+  }
+  .data-table tbody tr:last-child {
+    border-bottom: 0;
+  }
+  .data-table tbody tr:hover {
+    background: color-mix(in srgb, var(--color-surface-alt) 55%, transparent);
+  }
+  .data-table tbody th {
+    font-weight: 500;
+  }
+  .data-table .num {
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .data-table.compact {
+    font-size: 13px;
+  }
+  .data-table.compact th,
+  .data-table.compact td {
+    padding: 4px 8px;
+  }
+
+  /* ---- States -------------------------------------------------------- */
+  .state-note {
+    font-size: 14px;
+    color: var(--color-neutral);
+  }
+  .state-error {
+    font-size: 14px;
+    color: var(--color-destructive);
+  }
+  .skeleton {
+    border-radius: var(--radius-sm);
+    background: var(--color-surface-alt);
+    animation: pulse 1.6s ease-in-out infinite;
+  }
+
+  /* ---- The pitch ------------------------------------------------------ */
+  .pitch {
+    position: relative;
+    isolation: isolate;
+    border-radius: var(--radius-lg);
+    background-color: var(--color-pitch);
+    background-image: repeating-linear-gradient(
+      180deg,
+      var(--color-pitch) 0,
+      var(--color-pitch) 44px,
+      var(--color-pitch-stripe) 44px,
+      var(--color-pitch-stripe) 88px
+    );
+    box-shadow: inset 0 0 0 1px rgb(0 0 0 / 0.15);
+  }
+  .pitch-markings {
+    position: absolute;
+    inset: 12px;
+    z-index: -1;
+    pointer-events: none;
+    color: var(--color-pitch-line);
+  }
+}
+
+@layer utilities {
+  /* Numeric columns (market value, points, price/point, price change)
+     align regardless of digit count. */
+  .tabular {
+    font-variant-numeric: tabular-nums;
+  }
+}
+
+/* ---- Recharts, themed once from the tokens ---------------------------- */
+.recharts-cartesian-grid line {
+  stroke: var(--color-chart-grid);
+}
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line {
+  stroke: var(--color-line);
+}
+.recharts-cartesian-axis-tick-value,
+.recharts-text {
+  fill: var(--color-neutral);
+  font-family: var(--font-sans);
+}
+.recharts-reference-line line {
+  stroke: var(--color-neutral);
+}
+.recharts-default-tooltip {
+  background: var(--color-surface) !important;
+  border: 1px solid var(--color-line) !important;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-pop);
+  font-size: 13px;
+}
+.recharts-tooltip-label {
+  color: var(--color-ink);
+  font-weight: 600;
+}
+.recharts-tooltip-cursor {
+  fill: color-mix(in srgb, var(--color-surface-alt) 70%, transparent);
+}

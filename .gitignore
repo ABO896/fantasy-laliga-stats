@@ -1,0 +1,79 @@
+# ---------------------------------------------------------------------------
+# Local data — never leaves this machine
+# ---------------------------------------------------------------------------
+# SQLite database, its backups, and retained raw HTML from scrapes
+data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+raw_snapshots/
+logs/
+*.log
+
+# Captured third-party pages used as test fixtures (see tests/fixtures/README.md).
+# Everything under tests/fixtures/ is ignored except the README and the
+# hand-written challenge page.
+tests/fixtures/**
+!tests/fixtures/
+!tests/fixtures/README.md
+!tests/fixtures/challenge-page.html
+
+# ---------------------------------------------------------------------------
+# Secrets and local configuration
+# ---------------------------------------------------------------------------
+.env
+.env.*
+!.env.example
+
+# ---------------------------------------------------------------------------
+# AI assistant workspace — local working notes, not part of the project
+# ---------------------------------------------------------------------------
+.claude/
+CLAUDE.md
+CLAUDE.local.md
+.superpowers/
+.planning/
+docs/superpowers/
+
+# ---------------------------------------------------------------------------
+# Python
+# ---------------------------------------------------------------------------
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+build/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+htmlcov/
+
+# ---------------------------------------------------------------------------
+# Node / frontend
+# ---------------------------------------------------------------------------
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+coverage/
+npm-debug.log*
+
+# Playwright
+test-results/
+playwright-report/
+
+# ---------------------------------------------------------------------------
+# Editors and OS
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
