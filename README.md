@@ -10,19 +10,24 @@ who should I move?*
 ![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
 ![SQLite](https://img.shields.io/badge/SQLite-local-003B57?logo=sqlite&logoColor=white)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
 > Single user, runs on `127.0.0.1`, no accounts, no cloud. Not affiliated with LaLiga, DAZN or
 > any of the data sources below.
+
+![The player browser, sorted by Power Score](docs/images/players.png)
 
 ---
 
 ## Contents
 
 - [Features](#features)
+- [Screenshots](#screenshots)
 - [How it works](#how-it-works)
 - [Quick start](#quick-start)
 - [Configuration](#configuration)
 - [Refreshing data](#refreshing-data)
+- [Updating](#updating)
 - [Our models, and how good they are](#our-models-and-how-good-they-are)
 - [Development](#development)
 - [Project structure](#project-structure)
@@ -43,6 +48,23 @@ who should I move?*
 
 Light and dark themes follow your system setting. Wide tables scroll inside their own box, so the
 page never scrolls sideways, down to phone width.
+
+## Screenshots
+
+*Taken with a demo squad, not a real one.*
+
+| | |
+|---|---|
+| **My squad** — the XI on a pitch, with Power, Economy and xP on every card, and squad value and points over time<br/>![My squad](docs/images/squad.png) | **Transfers** — ranked sell → buy moves, each with the signals that drove it and its confidence<br/>![Transfers](docs/images/transfers.png) |
+| **Player page** — history, season statistics, expected points and analytics, each showing its inputs<br/>![Player page](docs/images/player-detail.png) | **Market model** — predicted risers and fallers, and the model's own scored track record<br/>![Market model](docs/images/market-model.png) |
+| **Compare** — two players side by side<br/>![Compare](docs/images/compare.png) | **League stats** — any jornada's scores, score spread and team totals<br/>![League stats](docs/images/stats-scores.png) |
+
+<details>
+<summary>Dark mode</summary>
+
+![The player browser in dark mode](docs/images/players-dark.png)
+
+</details>
 
 ## How it works
 
@@ -133,6 +155,22 @@ An earlier version scraped daily from `launchd`. Left unattended, it failed sile
 days and lost history that can't be recovered. A refresh that only runs while you're looking
 can't fail unseen. The trade-off is gaps in history on days the app isn't opened.
 
+## Updating
+
+```bash
+git pull
+uv sync && npm --prefix web install      # pick up any dependency changes
+cp data/fantasy.db data/fantasy.db.backup-$(date +%Y%m%d)   # before migrating
+uv run alembic upgrade head              # apply any new schema changes
+```
+
+**Your data is never touched by `git pull`.** Your squad, watchlist, settings and every
+snapshot live in `data/fantasy.db`, and your configuration in `.env` — both are git-ignored, so
+nothing in this repository can overwrite them. Schema changes arrive only as Alembic migrations,
+which alter tables in place rather than rebuilding the database. A migration only removes data
+when a feature it belongs to is removed, and the commit that does it says so; the backup above
+covers that case.
+
 ## Our models, and how good they are
 
 The source site paywalls its market and points predictions, so the app builds its own. Unlike
@@ -208,5 +246,5 @@ recorded in [`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md).
 
 ## License
 
-No license has been chosen yet, so all rights are reserved by default. You're welcome to read the
-code and learn from it; open an issue if you'd like to use it for something.
+[MIT](LICENSE). The license covers this code only — not data fetched from the sources above,
+which remains subject to each source's own terms.

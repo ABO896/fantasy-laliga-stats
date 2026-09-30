@@ -78,7 +78,7 @@ function suggestions(freshness: Freshness = FRESH): SuggestionsResponse {
     squadSize: 24, maxSquadSize: 24, unassessedMembers: [],
     moves: [{
       kind: "swap",
-      sell: player(1, "Vargas", { owned: true, expectedReturn: 0 }),
+      sell: player(1, "Pérez", { owned: true, expectedReturn: 0 }),
       buy: player(2, "Brugué"),
       gain: 17.7,
       signals: [
@@ -134,7 +134,7 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
   it("shows sell → buy moves with the signals that drove them", async () => {
     renderPage();
     const moves = await screen.findByRole("region", { name: "Suggested moves" });
-    expect(await within(moves).findByText("Vargas")).toBeInTheDocument();
+    expect(await within(moves).findByText("Pérez")).toBeInTheDocument();
     expect(within(moves).getByText("Brugué")).toBeInTheDocument();
     expect(within(moves).getByText(/Best XI \+5.2/)).toBeInTheDocument();
     expect(within(moves).getByText(/vs Malaga/)).toBeInTheDocument();
@@ -152,7 +152,7 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
 
   it("passes the owner's ceiling from the URL, never a derived budget", async () => {
     renderPage("/transfers?max=5000000&basis=ourIdealBid&n=5");
-    await screen.findByText("Vargas");
+    await screen.findByText("Pérez");
     expect(fetchSuggestions).toHaveBeenCalledWith({ n: 5, max: 5_000_000, basis: "ourIdealBid" });
     expect(fetchBargains).toHaveBeenCalledWith({ n: 5, max: 5_000_000, basis: "ourIdealBid" }, true);
   });
