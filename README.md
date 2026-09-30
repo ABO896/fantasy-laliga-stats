@@ -1,137 +1,212 @@
 # Fantasy LaLiga Stats
 
-A personal, locally-run web app for LaLiga Fantasy (DAZN). It holds more about every player
-than any single public source shows and turns that into concrete moves, so your squad is always
-the strongest and best-value one available to you. The ambition is a better analiticafantasy,
-built for one person.
+**A personal, locally-run analytics app for [LaLiga Fantasy](https://fantasy.laliga.com)'s
+Manager mode.** It gathers more about every player than any single public source shows, runs its
+own models on top, and turns all of it into one answer: *who should I be holding right now, and
+who should I move?*
 
-What it does:
+![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
+![React](https://img.shields.io/badge/React-19-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-5-3178C6?logo=typescript&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-local-003B57?logo=sqlite&logoColor=white)
 
-- **Player browser** — every LaLiga Fantasy player with market data, points, starter probability,
-  our own Power Score, Economy Score and expected points (xP), sortable and filterable, with a
-  watchlist and a two-player compare view.
-- **Player pages** — market-value history, points per jornada, form, value momentum, consistency
-  and valuation, each showing its inputs and window.
-- **League stats** — per-jornada scores, streaks, records, leaderboards, and a market-model tab
-  with predicted risers and fallers, their live track record, and where our prediction and the
-  source's disagree.
-- **Squad** — your squad on a pitch, with squad value and points over time.
-- **Transfers** — ranked sell → buy suggestions that are always legal under the game's rules,
-  bargains, the best players per position, and our own ideal and maximum bids. Confidence drops
-  visibly when the data is stale.
+> Single user, runs on `127.0.0.1`, no accounts, no cloud. Not affiliated with LaLiga, DAZN or
+> any of the data sources below.
 
-Every model scores itself against what actually happened, and the app shows the track record.
+---
 
-Design notes, plans and session history are kept locally and are not part of this repository.
-[`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md) (the game's rules, from the
-operator) and [`docs/SCRAPING-POLICY.md`](docs/SCRAPING-POLICY.md) are.
+## Contents
 
-## Stack
+- [Features](#features)
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Configuration](#configuration)
+- [Refreshing data](#refreshing-data)
+- [Our models, and how good they are](#our-models-and-how-good-they-are)
+- [Development](#development)
+- [Project structure](#project-structure)
+- [Data sources and scraping](#data-sources-and-scraping)
+- [License](#license)
 
-- **Backend / scraper:** Python 3.12+, FastAPI, SQLModel, Alembic, SQLite, Playwright + BeautifulSoup4
-- **Frontend:** React 19, Vite, TypeScript, TanStack Query/Table, Tailwind CSS v4
-- **Package managers:** `uv` (Python), `npm` (frontend)
+## Features
 
-## First-time setup
+| Page | What you get |
+|---|---|
+| **Players** `/` | Every player with market value, price change, points, price per point, starter probability and availability — plus our own **Power Score**, **Economy Score** and **expected points (xP)**. Sortable, filterable by position, team and a price ceiling, with a ★ watchlist. |
+| **Player page** `/players/:id` | Market-value history, points per jornada, form, value momentum, consistency and valuation — each metric shows its inputs and the window it used — plus our market prediction, xP with its basis, and our ideal / maximum bid. |
+| **Compare** `/compare` | Two players side by side: key stats with the better value highlighted, and their value and points charts. |
+| **League stats** `/stats` | Per-jornada scores with tier distribution and per-team analytics, streaks over a configurable window, single-jornada records, leaderboards by any tracked stat — and a **Market model** tab with predicted risers and fallers, their live track record, and where our prediction and the source's disagree. |
+| **My squad** `/squad` | Your real squad on a pitch: click a player, click a slot. Reachable formations, squad value and points over time, and Power / Economy / xP on every card. |
+| **Transfers** `/transfers` | Ranked **sell → buy** suggestions with the signals behind each one, bargains, the best players per position (with a budget toggle), and our own bid numbers. Every suggestion is checked server-side to leave the squad legal, and confidence visibly drops when the data is stale. |
+| **Scrape health** `/health` | Every refresh and every dataset inside it: status, row counts, and the reason when something failed. |
 
-```bash
-# Install uv (Python package/venv manager) if you don't have it
-brew install uv
+Light and dark themes follow your system setting. Wide tables scroll inside their own box, so the
+page never scrolls sideways, down to phone width.
 
-# Install Python dependencies (creates .venv/)
-uv sync
+## How it works
 
-# Install Playwright's Chromium browser (required for the scraper)
-uv run playwright install chromium
-
-# Install frontend dependencies
-npm --prefix web install
-
-# Copy the example env file and adjust if needed (defaults work out of the box)
-cp .env.example .env
-
-# Apply the database schema (SQLite file created at ./data/fantasy.db)
-uv run alembic upgrade head
+```mermaid
+flowchart LR
+    AF["analiticafantasy.com<br/>market · points · stats · predictions · calendar"] --> S
+    FD["football-data.co.uk<br/>results · team xG · odds"] --> S
+    S["scraper<br/>validate before write"] --> DB[("SQLite<br/>data/fantasy.db")]
+    DB --> M["core/ models<br/>analytics · market model · xP · transfers"]
+    M --> DB
+    DB --> API["FastAPI<br/>127.0.0.1:8000"]
+    API --> WEB["React app<br/>127.0.0.1:5173"]
 ```
 
-## Running locally
+- **One refresh entrypoint** (`python -m scraper.run`) fetches each dataset independently. A
+  failing source is recorded on its own and never takes the others down, and a malformed page is
+  rejected rather than written.
+- **Model code is pure.** Everything in `core/` is free of I/O, so every formula is unit-tested
+  in isolation.
+- **Rules are enforced server-side only.** Every cap and formation comes from
+  [`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md) via
+  `core/rules_data/laliga_fantasy.json`, never hard-coded; the client renders the server's
+  verdicts.
+- **The schema changes only through Alembic migrations**, and the test suite builds its database
+  through the same migrations.
+
+## Quick start
+
+**Requirements:** Python 3.12+, [`uv`](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+
+with npm. Developed on macOS; Linux should work the same.
 
 ```bash
-make dev     # starts both the FastAPI backend (127.0.0.1:8000) and the Vite dev server (127.0.0.1:5173)
+git clone https://github.com/ABO896/fantasy-laliga-stats.git
+cd fantasy-laliga-stats
+
+uv sync                                  # Python dependencies (creates .venv/)
+uv run playwright install chromium       # browser used by the player scraper
+npm --prefix web install                 # frontend dependencies
+
+cp .env.example .env                     # defaults work as-is
+uv run alembic upgrade head              # create the SQLite database
+
+make dev                                 # API on :8000 + web app on :5173
 ```
 
-Then open http://127.0.0.1:5173/ (http://localhost:5173/ works too).
-
-If a page says it can't reach the API, the backend isn't running — check that
-`make dev` is still up, or start the backend alone with `make api`. The two
-halves are independent: the frontend serves and renders fine on its own, and
-only the data is missing.
-
-Other commands:
+Open **http://127.0.0.1:5173**. The database starts empty: the banner offers **Refresh now**, or
+run `make scrape`. To give the charts and models some history straight away, backfill last
+season once:
 
 ```bash
-make api      # backend only
-make web      # frontend only
-make test     # backend (pytest) + frontend (vitest) test suites
-make scrape   # run a manual scrape (python -m scraper.run)
+make backfill                                                    # 2025/26 points per jornada
+uv run python -m scraper.backfill --season 2025 --football-data  # 2025/26 results and odds
 ```
 
-## Scraping policy
+If a page says it can't reach the API, the backend isn't running — `make api` starts it on its
+own.
 
-This app reads `analiticafantasy.com` (players, market, jornada points, season stats,
-predictions, fixture calendar) and `football-data.co.uk` (LaLiga results, team stats and odds),
-on demand only. The self-imposed access limits (identifying User-Agent, sequential jittered
-requests, capped backoff, a 403/429 is terminal, no proxy rotation) are documented in
-`docs/SCRAPING-POLICY.md` — read it before changing anything in `scraper/`. Scraped data stays on
-the machine that fetched it; none of it is committed here.
+## Configuration
+
+Settings are read from `.env` (see [`.env.example`](.env.example)) and fall back to sensible
+defaults. The ones you're most likely to touch:
+
+| Variable | Default | Purpose |
+|---|---|---|
+| `DB_PATH` | `./data/fantasy.db` | SQLite database file |
+| `RAW_SNAPSHOT_ROOT` | `./data/raw_scrapes` | Retained raw HTML, for debugging a bad scrape |
+| `RAW_RETENTION_DAYS` | `7` | How long raw HTML is kept; purged on every refresh |
+| `USER_AGENT` | identifies this project | Sent with every request — keep it honest |
+| `FOOTBALL_DATA_ENABLED` | `true` | Set to `false` to skip football-data.co.uk entirely |
+| `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Loopback only by design — never `0.0.0.0` |
+
+Premium-league options (the extra formations and the bench) are toggled in the app under
+**Settings**.
+
+> **Testing against a copy of your database?** Point **both** `DB_PATH` and `RAW_SNAPSHOT_ROOT`
+> at temporary locations. A refresh purges old raw HTML under `RAW_SNAPSHOT_ROOT`, whichever
+> database it is writing to.
 
 ## Refreshing data
 
-There is no schedule. Open the app, and if the data is stale the banner says so and offers a
-"Refresh now" button; `make scrape` does the same thing from a terminal. Both call the one
-`python -m scraper.run` entrypoint — there is never a second scrape path.
+There is **no schedule, by design**. When the data is stale the app says so and offers
+**Refresh now**; `make scrape` does the same from a terminal. A refresh runs nine datasets:
 
-The scheduled `launchd` agent was removed on 2026-08-22. It had run unattended during an
-eleven-day absence, failed silently the whole time, and cost five days of snapshots that cannot
-be recovered. A scrape that only runs while someone is looking at the app cannot fail unseen.
-The trade-off is accepted: history now has gaps where the app went unopened.
+`market` · `jornada_points` · `season_stats` · `points_predictions` · `market_predictions` ·
+`fixtures` · `football_data` · `market_model` · `expected_points`
 
-## Squad builder
+An earlier version scraped daily from `launchd`. Left unattended, it failed silently for eleven
+days and lost history that can't be recovered. A refresh that only runs while you're looking
+can't fail unseen. The trade-off is gaps in history on days the app isn't opened.
 
-The `/squad` page lets you build and manage your real LaLiga Fantasy squad: add and remove
-players at the price you actually paid, see which starting-XI formations your current squad
-could field, and get a refusal naming the shortfall and a remedy whenever a change would exceed
-the 24-player cap.
+## Our models, and how good they are
 
-The squad also carries one current starting XI on a pitch: eleven slots in your squad's stored
-formation, a bench strip (behind the league's premium-bench toggle), and the rest of the squad in
-a rail. Click a player, then click a slot — they move onto the pitch or swap with whoever is
-there. Every assignment saves immediately; there's no save button and no gameweek to pick. A
-slot can sit empty — the header just says the XI is incomplete.
+The source site paywalls its market and points predictions, so the app builds its own. Unlike
+the source, it **scores every prediction against what actually happened and shows the track
+record in the app**. Backtest results at release:
 
-Two things about the official rules are easy to assume wrongly, so they're worth stating
-plainly: LaLiga Fantasy has **no fixed budget cap** — spending power is your cash balance plus
-20% of your squad's market value, not a fixed ceiling — and there is **no per-club cap and no
-squad-level position quota**. Position rules apply only to the starting XI, not to who you're
-allowed to own.
+| Model | Result |
+|---|---|
+| **Market move** (rise or fall at the next update) | 95.0 % correct on next-day calls, against 94.6 % for "same as the last move". Its value is the confidence label: *strong* calls were right 99.0 % of the time, *weak* ones 73.8 %. On the 44 player-days where both could be compared, the source did better (95.5 % vs 90.9 %). |
+| **Expected points (xP)** per player per jornada | Against the source's own prediction: slightly worse mean error (2.40 vs 2.38 points), better on large misses (RMSE 3.34 vs 3.41) and at ranking players (Spearman 0.54 vs 0.52). |
+| **Power / Economy Score** | Descriptive ratings of a player's recent fantasy output, and of that output relative to price. |
+| **Transfer suggestions and bids** | Weights are set by hand, not fitted, and not yet scored against outcomes. Treat them as a well-reasoned shortlist, not an oracle. |
 
-The player browser filters by price against a selectable basis — market value (the default),
-`Ideal bid (Analítica)`, or `Max bid (Analítica)` — so you can set a price ceiling per session
-instead of the app tracking a cash balance. That balance was dropped 2026-08-21 along with the
-budget ledger, because the game makes a cash balance underivable from outside the official app. Every rule value the squad builder
-enforces — the cap, spending power, formation requirements — comes from
-`docs/RULES-LALIGA-FANTASY.md` via `core/rules_data/laliga_fantasy.json`, never hardcoded in
-validation code.
+Two limits are worth knowing. There is no permitted source for per-player xG/xA, so xP works from
+team-level odds, starter probability and form. And market demand (who is buying whom) isn't
+observable at all, so market prediction is inference from proxies.
+
+To reproduce the xP backtest against your own data:
+
+```bash
+uv run python -m storage.xp_backtest --db data/fantasy.db --fit
+```
+
+## Development
+
+```bash
+make test                     # pytest + Vitest
+uv run ruff check .           # lint (line length 100)
+npm --prefix web run build    # type-check + production build
+```
+
+Every change should pass all four. Tests never touch the network: parser tests run against pages
+captured from the live sources, which are **not redistributed** with this repository. On a fresh
+clone those tests are skipped, with the missing file named in the reason — see
+[`tests/fixtures/README.md`](tests/fixtures/README.md) to capture your own.
+
+After pulling a change that adds a migration, back up your database and run
+`uv run alembic upgrade head`. A green test suite does not mean your real database is migrated.
 
 ## Project structure
 
 ```
-scraper/    # source adapters (fetch + parse), the daily refresh entrypoint
-core/       # pure business logic — parsing, transforms, validation (no I/O)
-storage/    # SQLModel models, database engine/session, repository functions
-api/        # FastAPI app, routes, dependencies
-migrations/ # Alembic revisions — the only thing allowed to create/alter schema
-web/        # React + Vite frontend
-tests/      # pytest (backend/scraper) — Vitest tests live alongside their components in web/
-            # captured source pages are not committed; see tests/fixtures/README.md
+api/          FastAPI app and routes
+core/         pure logic: parsing, validation, rules, analytics, models (no I/O)
+storage/      SQLModel models, database session, repository and model-runner functions
+scraper/      source adapters (fetch + parse) and the refresh / backfill entrypoints
+migrations/   Alembic revisions — the only thing allowed to change the schema
+web/          React 19 + Vite + TypeScript + TanStack Query/Table + Recharts + Tailwind v4
+tests/        pytest suite (Vitest tests sit next to their components in web/)
+docs/         the game's rules and the scraping policy
 ```
+
+## Data sources and scraping
+
+| Source | Used for |
+|---|---|
+| [analiticafantasy.com](https://www.analiticafantasy.com) | Players, market values and bids, jornada points, season statistics, points and market predictions, fixture calendar |
+| [football-data.co.uk](https://www.football-data.co.uk) | LaLiga results, team shots and xG, pre-match and closing odds |
+
+Access is on demand only, sequential with jittered delays, bounded per run, and sent with an
+identifying User-Agent. A 403, 429 or bot challenge stops that source for the run, and nothing
+retries around it. There is no proxy rotation and no fingerprint spoofing. The full policy,
+including each source's terms as read by this project, is in
+[`docs/SCRAPING-POLICY.md`](docs/SCRAPING-POLICY.md) — read it before changing anything in
+`scraper/`.
+
+**Scraped data stays on the machine that fetched it.** None of it is committed here, and this
+project is for personal, non-commercial use. If you run it, you are responsible for respecting
+each source's terms.
+
+Game rules come from the operator's own help centre, never from third-party sites, and are
+recorded in [`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md).
+
+## License
+
+No license has been chosen yet, so all rights are reserved by default. You're welcome to read the
+code and learn from it; open an issue if you'd like to use it for something.
