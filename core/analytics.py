@@ -12,7 +12,7 @@ Formulas, windows and the reasoning behind each constant are in
 
 import math
 import statistics
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import NamedTuple
@@ -56,14 +56,18 @@ class GameweekRow(NamedTuple):
 # --- the shared points timeline -------------------------------------------------
 
 
-def build_timeline(rows: Iterable[GameweekRow]) -> list[tuple[int, int]]:
+def build_timeline(
+    rows: Iterable[GameweekRow], final_weeks: Collection[tuple[int, int]] = ()
+) -> list[tuple[int, int]]:
     """Every `(season, week)` the league has rows for, oldest first.
 
     A week nobody has a row for was not captured, so it is simply absent
-    rather than a zero. The in-progress jornada is excluded — but a week is
-    in progress only if it is flagged *and* is its season's highest week:
-    the ingest sets the flag on whatever week is latest and never clears it,
-    so an older week can carry a stale flag while being final.
+    rather than a zero. The in-progress jornada is excluded — a week is in
+    progress only if it is flagged *and* is its season's highest week (an
+    older week can carry a stale flag while being final), *and* the
+    calendar does not already say it is over (`final_weeks`: every fixture
+    of it that has kicked off is final). Without that last check the latest
+    complete jornada sat outside every score until the next one began.
     """
     weeks: set[tuple[int, int]] = set()
     flagged: set[tuple[int, int]] = set()
@@ -73,31 +77,42 @@ def build_timeline(rows: Iterable[GameweekRow]) -> list[tuple[int, int]]:
         top[r.season_year] = max(top.get(r.season_year, r.week), r.week)
         if r.is_provisional:
             flagged.add((r.season_year, r.week))
-    in_progress = {(s, w) for s, w in flagged if top[s] == w}
+    done = set(final_weeks)
+    in_progress = {(s, w) for s, w in flagged if top[s] == w and (s, w) not in done}
     return sorted(weeks - in_progress)
 
 
 def player_series(
-    timeline: Sequence[tuple[int, int]], rows: Iterable[GameweekRow], n: int
+    timeline: Sequence[tuple[int, int]],
+    rows: Iterable[GameweekRow],
+    n: int,
+    team_weeks: Collection[tuple[int, int]] | None = None,
 ) -> list[int]:
     """The player's last `n` jornadas on the league timeline, oldest first.
 
-    A timeline week with no row for this player is a jornada he did not
-    feature in and counts as 0 — but only from his first recorded week *of
-    that season*, so a mid-season arrival is not charged for weeks before he
-    was in the league.
+    A timeline week with no row for this player counts as 0 — he did not
+    feature — but only from his first recorded week *of that season*, and,
+    when `team_weeks` is given, only in weeks his club actually played. A
+    postponed match, or a capture that missed his club, is absent, not a
+    zero (audit F2).
     """
     points: dict[tuple[int, int], int] = {}
     first: dict[int, int] = {}
     for r in rows:
         points[(r.season_year, r.week)] = r.points
         first[r.season_year] = min(first.get(r.season_year, r.week), r.week)
+    played = set(team_weeks) if team_weeks is not None else None
     out: list[int] = []
     for season, week in reversed(timeline):
         if len(out) == n:
             break
-        if season in first and week >= first[season]:
-            out.append(points.get((season, week), 0))
+        if season not in first or week < first[season]:
+            continue
+        key = (season, week)
+        if key in points:
+            out.append(points[key])
+        elif played is None or key in played:
+            out.append(0)
     out.reverse()
     return out
 

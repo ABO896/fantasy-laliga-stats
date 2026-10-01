@@ -63,6 +63,29 @@ def test_series_restarts_first_appearance_per_season():
     assert player_series(timeline, mine, n=10) == [4, 4, 7]
 
 
+def test_timeline_keeps_a_flagged_top_week_the_calendar_says_is_final():
+    data = rows(1, 2026, {1: 1, 2: 2}, provisional=(2,))
+    assert build_timeline(data) == [(2026, 1)]
+    assert build_timeline(data, final_weeks={(2026, 2)}) == [(2026, 1), (2026, 2)]
+
+
+def test_series_skips_a_week_his_team_did_not_play():
+    # League played weeks 1-3; his club's week-2 match was postponed.
+    data = rows(1, 2026, {1: 6, 3: 4}) + rows(2, 2026, {1: 1, 2: 1, 3: 1})
+    timeline = build_timeline(data)
+    mine = [r for r in data if r.player_id == 1]
+    assert player_series(timeline, mine, n=10) == [6, 0, 4]
+    assert player_series(timeline, mine, n=10, team_weeks={(2026, 1), (2026, 3)}) == [6, 4]
+
+
+def test_series_still_zeroes_a_week_his_team_played_without_him():
+    data = rows(1, 2026, {1: 6, 3: 4}) + rows(2, 2026, {1: 1, 2: 1, 3: 1})
+    timeline = build_timeline(data)
+    mine = [r for r in data if r.player_id == 1]
+    played = {(2026, 1), (2026, 2), (2026, 3)}
+    assert player_series(timeline, mine, n=10, team_weeks=played) == [6, 0, 4]
+
+
 # --- form -----------------------------------------------------------------
 
 

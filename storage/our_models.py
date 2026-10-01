@@ -17,14 +17,22 @@ from sqlmodel import Session, delete, func, select
 
 from core import analytics as an
 from core import market_model as mm
+from core.config import get_settings
+from core.xp_backtest import MIN_TEAM_ROWS
+from storage.db import as_utc
 from storage.expected_points import expected_points_map
 from storage.models import (
+    Fixture,
     MarketPrediction,
     Player,
     PlayerGameweekPoints,
     PlayerSnapshot,
     SourcePrediction,
 )
+
+#: A calendar jornada counts as over once this many of its fixtures are final
+#: and none that has kicked off is still live.
+MIN_FINAL_FIXTURES = 8
 
 # --- loading ------------------------------------------------------------------------
 
@@ -67,6 +75,39 @@ def load_snapshot_points(
     return out
 
 
+def team_played_weeks(
+    rows: list[an.GameweekRow], team_of: dict[int, str]
+) -> dict[str, set[tuple[int, int]]]:
+    """Per club, the weeks it played: at least `MIN_TEAM_ROWS` of its (current)
+    players have a row. The same test MODEL-02's history already uses."""
+    counts: dict[tuple[str, int, int], int] = defaultdict(int)
+    for r in rows:
+        team = team_of.get(r.player_id)
+        if team is not None:
+            counts[(team, r.season_year, r.week)] += 1
+    out: dict[str, set[tuple[int, int]]] = defaultdict(set)
+    for (team, season, week), n in counts.items():
+        if n >= MIN_TEAM_ROWS:
+            out[team].add((season, week))
+    return dict(out)
+
+
+def calendar_final_weeks(session: Session, season: int, now: datetime) -> set[tuple[int, int]]:
+    """Current-season jornadas the calendar says are over: at least
+    `MIN_FINAL_FIXTURES` final, and every fixture that has kicked off final
+    (a postponed match still in the future does not hold the week open)."""
+    by_day: dict[int, list[Fixture]] = defaultdict(list)
+    for f in session.exec(select(Fixture)).all():
+        by_day[f.matchday].append(f)
+    out = set()
+    for day, fixtures in by_day.items():
+        finals = sum(1 for f in fixtures if f.is_final)
+        live = any(not f.is_final and as_utc(f.kickoff_utc) <= now for f in fixtures)
+        if finals >= MIN_FINAL_FIXTURES and not live:
+            out.add((season, day))
+    return out
+
+
 # --- ANALYTICS: per-player scores ---------------------------------------------------
 
 
@@ -84,7 +125,10 @@ class PlayerAnalytics:
 
 
 def compute_player_analytics(
-    session: Session, expected_points: dict[int, float] | None = None
+    session: Session,
+    expected_points: dict[int, float] | None = None,
+    now: datetime | None = None,
+    season: int | None = None,
 ) -> dict[int, PlayerAnalytics]:
     """Power, Economy and their components for every player in the latest
     snapshot.
@@ -94,6 +138,8 @@ def compute_player_analytics(
     (see `core.analytics.power_score`). Every caller passes nothing today.
     """
     expected_points = expected_points or {}
+    now = now or datetime.now(UTC)
+    season = season or get_settings().current_season_year
     latest = _latest_as_of(session)
     if latest is None:
         return {}
@@ -103,8 +149,10 @@ def compute_player_analytics(
         .where(PlayerSnapshot.as_of == latest)
     ).all()
 
+    team_of = dict(session.exec(select(Player.id, Player.team)).all())
     gw_rows = load_gameweek_rows(session)
-    timeline = an.build_timeline(gw_rows)
+    timeline = an.build_timeline(gw_rows, calendar_final_weeks(session, season, now))
+    played = team_played_weeks(gw_rows, team_of)
     by_player: dict[int, list[an.GameweekRow]] = defaultdict(list)
     for r in gw_rows:
         by_player[r.player_id].append(r)
@@ -113,7 +161,10 @@ def compute_player_analytics(
     partial = {}
     val_inputs = []
     for pid, market_value, position in market:
-        series = an.player_series(timeline, by_player.get(pid, []), n=window)
+        series = an.player_series(
+            timeline, by_player.get(pid, []), n=window,
+            team_weeks=played.get(team_of.get(pid), set()),
+        )
         inputs = an.power_inputs(series)
         power = an.power_score(inputs, expected_points.get(pid)) if inputs else None
         partial[pid] = (series, inputs, power, market_value)

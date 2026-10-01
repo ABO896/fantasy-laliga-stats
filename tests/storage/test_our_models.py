@@ -2,12 +2,14 @@
 (MODEL-01/03), divergence (MODEL-04), and per-player analytics assembly."""
 
 import json
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
 import sqlalchemy as sa
 from sqlmodel import select
 
+from core.analytics import GameweekRow
 from storage.models import (
+    Fixture,
     MarketPrediction,
     Player,
     PlayerGameweekPoints,
@@ -16,12 +18,14 @@ from storage.models import (
     SourcePrediction,
 )
 from storage.our_models import (
+    calendar_final_weeks,
     compute_player_analytics,
     divergence_payload,
     market_predictions_payload,
     player_analytics_payload,
     refresh_market_predictions,
     score_fields,
+    team_played_weeks,
     track_record_payload,
 )
 
@@ -198,3 +202,47 @@ def test_expected_points_hook_changes_power(session):
     hooked = compute_player_analytics(session, expected_points={p.id: 8.0})[p.id].power
     assert base.power_ppg == 4.0
     assert hooked.expected_points_used and hooked.power_ppg == 6.0
+
+
+# --- team_played_weeks / calendar_final_weeks ------------------------------------
+
+
+def test_team_played_weeks_needs_min_team_rows():
+    rows = [GameweekRow(2026, 1, pid, 2, False) for pid in range(1, 7)]   # 6 rows, team A
+    rows += [GameweekRow(2026, 2, 1, 2, False)]                          # 1 row, team A
+    team_of = {pid: "A" for pid in range(1, 7)}
+    assert team_played_weeks(rows, team_of) == {"A": {(2026, 1)}}
+
+
+def _fixture(session, fid, matchday, kickoff, final):
+    session.add(Fixture(fixture_id=fid, matchday=matchday, kickoff_utc=kickoff,
+                        kickoff_confirmed=True, is_final=final, home_team="Sevilla FC",
+                        away_team="Getafe", scraped_at=datetime.now(UTC)))
+    session.commit()
+
+
+def test_calendar_final_weeks(session):
+    now = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    fid = 0
+
+    def add(matchday, kickoff, final):
+        nonlocal fid
+        fid += 1
+        _fixture(session, fid, matchday, kickoff, final)
+
+    # Matchday 7: 10 fixtures, all final, kicked off before `now`.
+    for i in range(10):
+        add(7, datetime(2026, 9, 25, 19, tzinfo=UTC), True)
+    # Matchday 6: 9 final before `now` + 1 not-final postponed fixture after `now`.
+    for i in range(9):
+        add(6, datetime(2026, 9, 18, 19, tzinfo=UTC), True)
+    add(6, now + timedelta(days=5), False)
+    # Matchday 8: 10 fixtures, none final, after `now`.
+    for i in range(10):
+        add(8, now + timedelta(days=2), False)
+    # Matchday 5: 9 final + 1 not final that kicked off before `now` (live).
+    for i in range(9):
+        add(5, datetime(2026, 9, 11, 19, tzinfo=UTC), True)
+    add(5, now - timedelta(hours=1), False)
+
+    assert calendar_final_weeks(session, 2026, now) == {(2026, 6), (2026, 7)}
