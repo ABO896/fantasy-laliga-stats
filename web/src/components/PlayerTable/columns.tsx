@@ -282,7 +282,12 @@ const baseColumns: PlayerColumnDef[] = [
       </span>
     ),
   },
-  scoreColumn("powerScore", "Power", "Power Score (0–100): recent points, form and consistency"),
+  scoreColumn(
+    "powerScore",
+    "Power",
+    "Power Score (0–100): expected points per match — this season's rate shrunk toward " +
+      "last season, calibrated per position, × availability",
+  ),
   scoreColumn(
     "economyScore",
     "Economy",

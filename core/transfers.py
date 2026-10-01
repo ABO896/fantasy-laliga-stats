@@ -809,12 +809,12 @@ def bargains(
     "High": expected return in the top quarter of his position
     (`BARGAIN_MIN_PERCENTILE`), so a cheap squad-filler never tops the list.
     "Against price": priced below what that return usually costs at his
-    position — a price curve `ln(mv) = a + b · ln(expected_return)` fitted
-    over every player with enough evidence (at least
-    `analytics.MIN_VALUATION_JORNADAS` recent jornadas). Log-log rather than
-    ANALYTICS-04's exponential curve, because the exponential extrapolates a
-    top scorer's "fair" price to several times anything the market pays.
-    Ranked by the gap.
+    position — a log-log price curve `ln(mv) = a + b · ln(expected_return)`
+    fitted over every player with enough evidence (at least
+    `analytics.MIN_VALUATION_JORNADAS` recent jornadas). Same log-log shape
+    as ANALYTICS-04's own fair-value curve, but fitted on expected return
+    rather than Power's quality_ppg — bargains is about what's coming, not
+    what already happened. Ranked by the gap.
     """
     rows = [a for a in assessments.values()
             if (a.expected_return or 0) > 0
