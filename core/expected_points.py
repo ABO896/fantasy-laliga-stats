@@ -11,6 +11,7 @@ backtest in `core/xp_backtest.py`) load rows and pass plain values in.
             average (or a position default)
     base  = a·rate + b·rate·s + c·s          when a starter probability s is known
           = a·rate + c                       otherwise
+    s     = min(s, 0.1) when the status is injured or suspended
     xP    = base
           + α · base · (team_goals − 1.4)    team expected goals, from the odds
           + γ · s' · (clean_sheet − 0.30)    clean-sheet probability, from the odds
@@ -31,7 +32,7 @@ import math
 from collections.abc import Sequence
 from dataclasses import dataclass, field
 
-MODEL_VERSION = "xp-1"
+MODEL_VERSION = "xp-2"
 
 #: Half-life, in team matches, of the recency weighting on the points rate.
 RATE_HALF_LIFE = 5.0
@@ -92,9 +93,12 @@ class Coefficients:
 
 DEFAULT_COEFFICIENTS = Coefficients(RATE_ONLY, WITH_STARTER, FIXTURE)
 
-#: Availability states that mean "will not play" when no starter
-#: probability was published.
+#: Availability states that mean "will not play": no published chance gives
+#: 0, a published one is capped here. The source leaves a chance on injured
+#: players (20 of them on 2026-09-30, several at 50) — trusting it kept an
+#: injured Mbappé at full xP.
 UNAVAILABLE = frozenset({"injured", "suspended"})
+UNAVAILABLE_STARTER_CAP = 0.1
 
 
 @dataclass(frozen=True)
@@ -161,7 +165,8 @@ def points_rate(
 
 def _starter_fraction(inputs: XpInputs) -> float | None:
     if inputs.starter_probability is not None:
-        return max(0.0, min(1.0, inputs.starter_probability / 100))
+        s = max(0.0, min(1.0, inputs.starter_probability / 100))
+        return min(s, UNAVAILABLE_STARTER_CAP) if inputs.availability in UNAVAILABLE else s
     if inputs.availability in UNAVAILABLE:
         return 0.0
     return None
