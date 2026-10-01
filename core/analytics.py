@@ -41,9 +41,12 @@ AVAILABILITY_FACTOR = {"available": 1.0, "doubtful": 0.6, "suspended": 0.5, "inj
 MIN_VALUATION_JORNADAS = 3
 #: A position with fewer eligible players than this uses the pooled fit.
 MIN_POSITION_FIT = 15
-#: Below this published starter probability a player isn't valued: a
+#: At or below this published starter probability a player isn't valued: a
 #: floor-priced fringe player with a few points otherwise reads as the best
 #: value in the game (audit F6 — the top Economy quintile scored least).
+#: 30 is the source's own common default bucket for a starter probability
+#: it hasn't really assessed, not a real signal of fringe status, so the
+#: gate treats exactly 30 as still excluded (controller ruling, 2026-09-30).
 MIN_VALUATION_STARTER = 30.0
 
 
@@ -304,6 +307,10 @@ class ValuationInput:
     #: shrunk toward a prior, so a player who scores nothing still gets a
     #: small positive `quality_ppg`; this is the real "didn't play" signal.
     recent_avg: float | None = None
+    #: Power v2's `PowerInputs.rate_matches` — matches played in the
+    #: *current* season. `None` means not checked (caller didn't pass it).
+    current_matches: int | None = None
+    availability: str | None = None
 
 
 @dataclass(frozen=True)
@@ -332,8 +339,12 @@ def _eligibility(v: ValuationInput) -> str | None:
         return "no points in the recent window"
     if v.market_value <= 0:
         return "no market value"
-    if v.starter_probability is not None and v.starter_probability < MIN_VALUATION_STARTER:
-        return f"starter probability below {MIN_VALUATION_STARTER:.0f}%"
+    if v.current_matches is not None and v.current_matches < MIN_VALUATION_JORNADAS:
+        return f"fewer than {MIN_VALUATION_JORNADAS} matches this season"
+    if v.starter_probability is not None and v.starter_probability <= MIN_VALUATION_STARTER:
+        return f"starter probability {MIN_VALUATION_STARTER:.0f}% or below"
+    if v.availability in xp.UNAVAILABLE:
+        return "unavailable (injured or suspended)"
     return None
 
 

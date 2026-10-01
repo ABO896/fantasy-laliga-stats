@@ -174,7 +174,9 @@ def compute_player_analytics(
         if power is not None:
             recent_avg = statistics.fmean(series[-an.RECENT_WINDOW:])
             val_inputs.append(an.ValuationInput(pid, position, power.quality_ppg, market_value,
-                                                inputs.recent_jornadas, starter, recent_avg))
+                                                inputs.recent_jornadas, starter, recent_avg,
+                                                current_matches=inputs.rate_matches,
+                                                availability=availability))
 
     vals = an.valuations(val_inputs)
     econ = an.economy_scores(vals)
@@ -291,7 +293,7 @@ def player_analytics_payload(
         "economy": a and {
             "score": _round(a.economy, 1),
             "basis": "percentile of the log-log valuation gap among valued players "
-                     "(starter >= 30%)",
+                     "(starter > 30%, ≥ 3 matches this season, available)",
         },
         "marketPrediction": prediction and _prediction_payload(prediction),
     }

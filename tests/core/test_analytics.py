@@ -8,6 +8,7 @@ import pytest
 from core import expected_points as xp
 from core.analytics import (
     AVAILABILITY_FACTOR,
+    MIN_VALUATION_JORNADAS,
     GameweekRow,
     ValuationInput,
     build_timeline,
@@ -264,3 +265,50 @@ def test_unknown_starter_probability_is_not_gated():
             for i in range(1, 20)]
     unknown = ValuationInput(51, "DEF", 3.0, 2_000_000, 5, None)
     assert valuations(base + [unknown])[51].gap is not None
+
+
+def test_exactly_30_percent_starter_is_excluded():
+    """The controller ruling made the starter gate strict: exactly 30%
+    (the source's common default bucket) no longer qualifies."""
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    borderline = ValuationInput(52, "DEF", 3.0, 2_000_000, 5, 30.0, current_matches=10)
+    result = valuations(base + [borderline])[52]
+    assert result.gap is None
+    assert result.reason == "starter probability 30% or below"
+
+
+def test_injured_player_is_excluded():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    injured = ValuationInput(53, "DEF", 3.0, 2_000_000, 10, 70.0, current_matches=10,
+                              availability="injured")
+    result = valuations(base + [injured])[53]
+    assert result.gap is None
+    assert result.reason == "unavailable (injured or suspended)"
+
+
+def test_zero_current_season_matches_is_excluded_despite_last_season_history():
+    """Power v2's shrunk quality_ppg can stay positive from last season's
+    prior alone; a player with no matches this season must still be
+    ineligible for a current valuation."""
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    benched_all_season = ValuationInput(54, "DEF", 3.0, 2_000_000, 10, 70.0, current_matches=0)
+    result = valuations(base + [benched_all_season])[54]
+    assert result.gap is None
+    assert result.reason == f"fewer than {MIN_VALUATION_JORNADAS} matches this season"
+
+
+def test_normal_player_with_matches_and_starter_role_is_still_valued():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    normal = ValuationInput(55, "DEF", 3.5, 2_200_000, 10, 70.0, current_matches=10,
+                             availability="available")
+    result = valuations(base + [normal])[55]
+    assert result.gap is not None
+    assert result.reason is None
