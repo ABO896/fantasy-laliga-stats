@@ -7,10 +7,10 @@ constant below is an assumption or a calibration and is argued in
 
 Built on Phase 10, not beside it:
 
-* **Expected return** starts from `PowerResult.backward_ppg` (ANALYTICS-06),
+* **Expected return** starts from `PowerResult.quality_ppg` (ANALYTICS-06),
   weights it by fixture difficulty (`core.fixture_difficulty`, TRANSFER-03)
   and by the chance of playing, and — once MODEL-02 lands — blends in
-  expected points at `analytics.EXPECTED_POINTS_WEIGHT`. Without expected
+  expected points at `EXPECTED_POINTS_WEIGHT`. Without expected
   points it degrades to the backward-looking form, not to nothing.
 * **Bids** use our fair value (ANALYTICS-04) and our next-update prediction
   (MODEL-01), never the source's bid numbers.
@@ -45,9 +45,11 @@ FIXTURE_WEIGHT = 0.3
 #: Bounds on one fixture's multiplier, so an extreme strength rating can
 #: never zero out or double a player.
 FIXTURE_TERM_BOUNDS = (0.5, 1.5)
-#: Chance-of-playing multiplier by the source's availability status.
-#: Assumed. Unknown statuses read as available.
-AVAILABILITY_FACTOR = {"available": 1.0, "doubtful": 0.6, "suspended": 0.5, "injured": 0.15}
+#: Chance-of-playing multiplier by the source's availability status — shared
+#: with Power (`core.analytics`).
+AVAILABILITY_FACTOR = an.AVAILABILITY_FACTOR
+#: xP's share of expected return; assumed — Plan 3 replaces the blend.
+EXPECTED_POINTS_WEIGHT = 0.5
 #: Below this availability factor a player is never a suggested buy.
 MIN_BUYABLE_AVAILABILITY = 0.5
 #: Share of expected points that depends on starting: `STARTER_FLOOR +
@@ -60,8 +62,9 @@ STARTER_FLOOR = 0.5
 MAX_BID_HORIZON_UPDATES = 3
 #: Share of the valuation gap (fair / market − 1, when positive) worth
 #: paying over market value. The gap is capped at `MAX_GAP_COUNTED` first:
-#: ANALYTICS-04's curve is exponential, so a star's fair value extrapolates
-#: far beyond anything the market pays.
+#: not because ANALYTICS-04's log-log curve explodes (it no longer does),
+#: but because the gap itself is noisy enough that an uncapped one would
+#: let a single outlier dominate the bid.
 SURPLUS_SHARE = 0.10
 MAX_GAP_COUNTED = 1.0
 #: A maximum bid never exceeds market value by more than this.
@@ -112,7 +115,7 @@ class PlayerInput:
     source_max_bid: int | None
     availability: str
     starter_probability: float | None  # 0–100
-    backward_ppg: float | None  # PowerResult.backward_ppg; None without a timeline
+    backward_ppg: float | None  # PowerResult.quality_ppg; None without a timeline
     recent_jornadas: int
     expected_points: float | None  # MODEL-02, next jornada; None until it lands
     fair_value: int | None  # ANALYTICS-04
@@ -298,7 +301,7 @@ def assess_player(
 
     Without expected points: `backward_ppg × fixture × minutes`.
     With them (MODEL-02): `w · xP + (1 − w) · backward_ppg × fixture`, with
-    `w = analytics.EXPECTED_POINTS_WEIGHT`; the minutes guess is dropped
+    `w = EXPECTED_POINTS_WEIGHT`; the minutes guess is dropped
     because expected points carry their own.
 
     `hold_value = expected_return · jornadas + mv · predicted% / cash_per_point`
@@ -309,7 +312,7 @@ def assess_player(
     xp_used = p.expected_points is not None
     backward = p.backward_ppg * outlook.multiplier if p.backward_ppg is not None else None
     if xp_used:
-        w = an.EXPECTED_POINTS_WEIGHT
+        w = EXPECTED_POINTS_WEIGHT
         er = p.expected_points if backward is None else w * p.expected_points + (1 - w) * backward
     elif backward is not None:
         er = backward * minutes
@@ -806,12 +809,12 @@ def bargains(
     "High": expected return in the top quarter of his position
     (`BARGAIN_MIN_PERCENTILE`), so a cheap squad-filler never tops the list.
     "Against price": priced below what that return usually costs at his
-    position — a price curve `ln(mv) = a + b · ln(expected_return)` fitted
-    over every player with enough evidence (at least
-    `analytics.MIN_VALUATION_JORNADAS` recent jornadas). Log-log rather than
-    ANALYTICS-04's exponential curve, because the exponential extrapolates a
-    top scorer's "fair" price to several times anything the market pays.
-    Ranked by the gap.
+    position — a log-log price curve `ln(mv) = a + b · ln(expected_return)`
+    fitted over every player with enough evidence (at least
+    `analytics.MIN_VALUATION_JORNADAS` recent jornadas). Same log-log shape
+    as ANALYTICS-04's own fair-value curve, but fitted on expected return
+    rather than Power's quality_ppg — bargains is about what's coming, not
+    what already happened. Ranked by the gap.
     """
     rows = [a for a in assessments.values()
             if (a.expected_return or 0) > 0

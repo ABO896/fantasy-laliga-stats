@@ -90,7 +90,7 @@ def test_track_record_empty_then_counts(client, engine):
     assert body["counts"]["pending"] == 1 and body["counts"]["noFixture"] == 1
 
 
-def test_player_list_carries_xp_and_power_blends_it(client, engine):
+def test_player_list_carries_xp_and_power_ignores_it(client, engine):
     ace, idle = _seed(engine)
     rows = {p["playerId"]: p for p in client.get("/api/players").json()["players"]}
     assert rows[ace]["expectedPoints"] > 0
@@ -98,11 +98,9 @@ def test_player_list_carries_xp_and_power_blends_it(client, engine):
     assert rows[idle]["expectedPoints"] == 0
     assert rows[idle]["expectedPointsBasis"] == "no_fixture"
 
+    # Power v2 is its own number: xP is not blended into it (audit 2026-09-30).
     power = client.get(f"/api/players/{ace}/analytics").json()["power"]
-    assert power["expectedPointsUsed"] is True
-    assert round(power["expectedPoints"], 2) == rows[ace]["expectedPoints"]
-    idle_power = client.get(f"/api/players/{idle}/analytics").json()["power"]
-    assert idle_power["expectedPointsUsed"] is False  # a blank never drags Power down
+    assert "expectedPoints" not in power and "expectedPointsUsed" not in power
 
 
 def test_squad_members_carry_xp(client, engine):

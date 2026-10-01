@@ -89,6 +89,26 @@ def test_second_day_appends_not_overwrites(session):
     assert latest_snapshot.market_value == original_market_value + 1_000_000
 
 
+def test_snapshot_keeps_starter_market_updates_and_fixture_id(session):
+    # F15: these three columns used to not exist at all — the parser kept
+    # a subset of the source payload and the rest, including isStarter /
+    # mercadosProximoPartido / nextFixture.fixtureId, was discarded before
+    # it ever reached to_snapshot. This fixture predates those keys in the
+    # embedded JSON, so the values are None here; the point is that
+    # to_snapshot actually passes them through onto the model rather than
+    # dropping them.
+    records, player_ids = _load_fixture_into(session, date(2026, 8, 6))
+    first_record = records[0]
+    snapshot = to_snapshot(
+        first_record, player_ids[first_record["external_id"]], date(2026, 8, 6), scrape_run_id=1
+    )
+    assert snapshot.is_starter == first_record.get("is_starter")
+    assert snapshot.market_updates_to_next_match == first_record.get(
+        "market_updates_to_next_match"
+    )
+    assert snapshot.next_fixture_id == first_record.get("next_fixture_id")
+
+
 def test_raw_fields_roundtrip(session):
     records, _ = _load_fixture_into(session, date(2026, 8, 6))
     rows = get_latest_players(session)

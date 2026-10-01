@@ -69,13 +69,13 @@ function Panel({ data }: { data: PlayerAnalytics }) {
         {power ? (
           <>
             <p>
-              ({num(power.recentAvg, 2)} recent avg + {power.formWeight} × form {signed(form?.value)})
-              × (0.8 + 0.2 × consistency {num(power.consistency, 0)}/100) ={" "}
-              {num(power.powerPpg, 2)} pts/jornada; {power.referencePpg} = 100.
+              {power.calibration.a} × rate {num(power.rate, 2)} {signed(power.calibration.c, 3)} ={" "}
+              {num(power.qualityPpg, 2)} pts/match; × {power.availabilityFactor} (
+              {power.availability ?? "available"}) = {num(power.powerPpg, 2)}; {power.referencePpg} = 100.
             </p>
             <p>
-              Recent window: last {power.recentJornadas} jornadas. {power.availabilityNote}
-              {power.expectedPointsUsed ? ` Blended with expected points ${power.expectedPoints}.` : ""}
+              Rate: this season&apos;s {power.rateMatches} team matches, recency-weighted and shrunk
+              toward {num(power.prior, 2)} ({power.priorSource === "last_season" ? "last season" : "position average"}).
             </p>
           </>
         ) : (
@@ -87,11 +87,11 @@ function Panel({ data }: { data: PlayerAnalytics }) {
           <>
             <p>
               Priced {formatEuroAbbreviated(valuation.marketValue ?? 0)} against a fair value of{" "}
-              {formatEuroAbbreviated(valuation.fairValue ?? 0)} for his Power at his position (
+              {formatEuroAbbreviated(valuation.fairValue ?? 0)} for his points per match at his position (
               {signed(valuation.gapPct, 1)}%).
             </p>
             <p>
-              Fair value = exp({valuation.fit.intercept} + {valuation.fit.slope} × pts/jornada), fitted on{" "}
+              Fair value = e^{valuation.fit.intercept} × (pts/match)^{valuation.fit.slope} (log-log), fitted on{" "}
               {valuation.fit.n} {valuation.fit.pooled ? "players (all positions pooled)" : "players at his position"}
               , R² {num(valuation.fit.rSquared, 2)}. Score = {economy?.basis}.
             </p>

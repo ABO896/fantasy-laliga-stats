@@ -23,6 +23,7 @@ from sqlmodel import Session, delete, distinct, func, select
 from core.config import Settings
 from core.season_stats_schema import SEASON_RECORD_FIELDS, column_name
 from core.squad_rules import SquadMember as EngineMember
+from core.xp_backtest import MIN_TEAM_ROWS
 from storage.db import as_utc
 from storage.models import (
     DatasetRun,
@@ -736,6 +737,40 @@ def stored_weeks(session: Session, season_year: int) -> set[int]:
     return set(rows)
 
 
+def weeks_to_refetch(session: Session, season_year: int) -> set[int]:
+    """Stored weeks of a season whose rows may be incomplete.
+
+    Two ways a stored week goes stale. It was captured while in progress
+    (`is_provisional`), and the ingest never re-fetched it once a later week
+    existed — 2026/27 week 6 sat at 6 of 20 clubs for two weeks that way.
+    Or it was fetched as final while a match was postponed, and that match
+    has since been played: a `Fixture` of the same matchday is final and
+    kicked off after the run that stored the week started.
+    """
+    provisional = set(
+        session.exec(
+            select(distinct(PlayerGameweekPoints.week))
+            .where(PlayerGameweekPoints.season_year == season_year)
+            .where(PlayerGameweekPoints.is_provisional == True)  # noqa: E712
+        ).all()
+    )
+    captured = {
+        week: as_utc(started)
+        for week, started in session.exec(
+            select(PlayerGameweekPoints.week, func.max(ScrapeRun.started_at))
+            .join(ScrapeRun, ScrapeRun.id == PlayerGameweekPoints.scrape_run_id)
+            .where(PlayerGameweekPoints.season_year == season_year)
+            .group_by(PlayerGameweekPoints.week)
+        ).all()
+    }
+    late = {
+        f.matchday
+        for f in session.exec(select(Fixture).where(Fixture.is_final == True)).all()  # noqa: E712
+        if f.matchday in captured and as_utc(f.kickoff_utc) > captured[f.matchday]
+    }
+    return provisional | late
+
+
 def get_dataset_runs(session: Session, scrape_run_id: int) -> list[DatasetRun]:
     """Every dataset outcome recorded within one scrape run, oldest first."""
     return list(
@@ -1306,19 +1341,27 @@ def get_team_week_points(session: Session, season_year: int) -> dict[str, list[f
     """Each team's total fantasy points per *final* jornada of a season, in
     week order — the input to `core.fixture_difficulty.team_strength`.
 
-    Grouped on `Player.team`, i.e. each player's *current* club: a player
-    transferred mid-season carries his earlier points to his new team. The
-    active (provisional) jornada is excluded because its points still move.
+    Grouped on `Player.team`, i.e. each player's *current* club. The active
+    jornada is excluded because its points still move — the season's highest
+    week, when flagged. The flag alone is not trusted: ingest used to leave
+    it set on finished weeks (2026/27 week 2), which silently dropped them.
+    A club-week with fewer than `MIN_TEAM_ROWS` rows is a club that didn't
+    play (or wasn't captured) and is left out rather than read as a low total.
     """
     rows = session.exec(
-        select(Player.team, PlayerGameweekPoints.week, func.sum(PlayerGameweekPoints.points))
+        select(Player.team, PlayerGameweekPoints.week,
+               func.sum(PlayerGameweekPoints.points), func.count(),
+               func.max(PlayerGameweekPoints.is_provisional))
         .join(Player, Player.id == PlayerGameweekPoints.player_id)
         .where(PlayerGameweekPoints.season_year == season_year)
-        .where(PlayerGameweekPoints.is_provisional == False)  # noqa: E712
         .group_by(Player.team, PlayerGameweekPoints.week)
         .order_by(Player.team, PlayerGameweekPoints.week)
     ).all()
+    top = max((week for _t, week, *_ in rows), default=None)
+    active = top if any(week == top and flag for _t, week, _s, _n, flag in rows) else None
     out: dict[str, list[float]] = {}
-    for team, _week, total in rows:
+    for team, week, total, n, _flag in rows:
+        if week == active or n < MIN_TEAM_ROWS:
+            continue
         out.setdefault(team, []).append(float(total))
     return out

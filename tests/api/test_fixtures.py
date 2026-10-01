@@ -8,6 +8,7 @@ import pytest
 
 from core.config import get_settings
 from core.fixture_difficulty import HOME_ADVANTAGE
+from core.xp_backtest import MIN_TEAM_ROWS
 from scraper.sources.analiticafantasy_calendar import FixtureRecord
 from storage.models import Player, PlayerGameweekPoints, ScrapeRun
 from storage.repository import upsert_fixtures
@@ -46,25 +47,38 @@ def calendar(session):
 
 
 def _points(session, team_totals: dict[str, list[int]], season=SEASON):
+    """Seed `MIN_TEAM_ROWS` players per team so every week clears the
+    minimum-rows floor — one carries the real total, the rest are 0-point
+    fillers (the sum, and the team-strength ranking it drives, is unchanged)."""
     run = ScrapeRun(started_at=datetime.now(UTC), status="success")
     session.add(run)
     session.commit()
     now = datetime.now(UTC)
     for team, weeks in team_totals.items():
-        p = Player(
-            external_id=f"p-{team}-{season}", name=team, team=team, position="DEL",
-            created_at=now, updated_at=now,
-        )
-        session.add(p)
-        session.commit()
-        session.refresh(p)
+        players = []
+        for i in range(MIN_TEAM_ROWS):
+            p = Player(
+                external_id=f"p{i}-{team}-{season}", name=f"{team}{i}", team=team,
+                position="DEL", created_at=now, updated_at=now,
+            )
+            session.add(p)
+            session.commit()
+            session.refresh(p)
+            players.append(p)
         for week, points in enumerate(weeks, start=1):
             session.add(
                 PlayerGameweekPoints(
-                    season_year=season, week=week, player_id=p.id, points=points,
+                    season_year=season, week=week, player_id=players[0].id, points=points,
                     scrape_run_id=run.id,
                 )
             )
+            for filler in players[1:]:
+                session.add(
+                    PlayerGameweekPoints(
+                        season_year=season, week=week, player_id=filler.id, points=0,
+                        scrape_run_id=run.id,
+                    )
+                )
     session.commit()
 
 

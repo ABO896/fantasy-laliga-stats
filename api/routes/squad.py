@@ -17,7 +17,7 @@ from core.lineup_rules import EligiblePlayer, LineupSelection, evaluate_lineup
 from core.rules import Rules, find_formation, load_rules
 from core.squad_rules import SquadMember as EngineMember
 from core.squad_rules import SquadVerdict, evaluate_add, evaluate_squad
-from storage.expected_points import expected_points_map, latest_expected_points, xp_fields
+from storage.expected_points import latest_expected_points, xp_fields
 from storage.models import Player, PlayerSnapshot
 from storage.our_models import compute_player_analytics, score_fields
 from storage.repository import (
@@ -84,7 +84,7 @@ def _squad_payload(session) -> dict:
     roles = get_squad_roles(session)
     availability = get_availability_as_of(session, [m.player_id for m in members], date.today())
     setup = get_squad_setup(session)
-    analytics = compute_player_analytics(session, expected_points=expected_points_map(session))
+    analytics = compute_player_analytics(session)
     latest_xp = latest_expected_points(session)
 
     # Looked up in the *full* rule set, not the league's: a shape stored

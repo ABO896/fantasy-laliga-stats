@@ -24,9 +24,9 @@ function prediction(overrides: Partial<ExpectedPointsPrediction> = {}): Expected
     isHome: false,
     locksAt: null,
     updatedAt: "2026-10-05T12:00:00+00:00",
-    modelVersion: "xp-1",
+    modelVersion: "xp-2",
     inputs: {
-      modelVersion: "xp-1",
+      modelVersion: "xp-2",
       rate: {
         value: 4.1, matches: 5, recentPoints: [6, 2, 8], halfLife: 5, prior: 3.2,
         priorSource: "last_season", priorWeight: 5,

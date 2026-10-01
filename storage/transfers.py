@@ -42,10 +42,9 @@ def load_expected_points(session: Session, season: int | None = None) -> dict[in
     blank-jornada rows excluded), or `None` when no expected points are
     stored yet — Phase 11 then degrades to its backward-looking form.
 
-    From here xP flows two ways at once: into Power through
-    `compute_player_analytics(session, expected_points=...)` (exactly as the
-    browser and squad payloads blend it), and into every expected return
-    through `PlayerInput.expected_points` — and the odds dataset's age starts
+    From here xP flows into expected return only, through
+    `PlayerInput.expected_points` — not into Power, which since Power v2 is
+    its own backward-looking number — and the odds dataset's age starts
     counting toward confidence, because odds are what xP is built on.
     """
     xp_map = expected_points_map(session, season)
@@ -132,7 +131,7 @@ def build_context(
         dict(expected_points) if expected_points is not None
         else load_expected_points(session, season)
     )
-    analytics = compute_player_analytics(session, expected_points=xp)
+    analytics = compute_player_analytics(session)
     rows = get_latest_players(session)
     predictions = _latest_predictions(session)
     per_team, window, fixtures_available = _fixture_outlooks(session, season, jornadas, now)
@@ -154,7 +153,7 @@ def build_context(
             source_max_bid=snapshot.max_bid,
             availability=snapshot.availability_status,
             starter_probability=snapshot.starter_probability,
-            backward_ppg=power.backward_ppg if power else None,
+            backward_ppg=power.quality_ppg if power else None,
             recent_jornadas=a.power_inputs.recent_jornadas if a and a.power_inputs else 0,
             expected_points=(xp or {}).get(player.id),
             fair_value=valuation.fair_value if valuation else None,

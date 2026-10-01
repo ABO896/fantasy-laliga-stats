@@ -14,13 +14,7 @@ router = APIRouter()
 def list_players(session: SessionDep):
     rows = get_latest_players(session)
     latest_xp = latest_expected_points(session)
-    # MODEL-02 feeds Power (ANALYTICS-06); blank jornadas stay out of the blend.
-    analytics = compute_player_analytics(
-        session,
-        expected_points={
-            pid: v for pid, (v, basis) in latest_xp.items() if basis != "no_fixture"
-        },
-    )
+    analytics = compute_player_analytics(session)
 
     as_of = rows[0][0].as_of.isoformat() if rows else None
     players = [

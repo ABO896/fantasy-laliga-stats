@@ -5,6 +5,7 @@ import math
 import pytest
 
 from core import expected_points as xp
+from core.expected_points import UNAVAILABLE_STARTER_CAP, XpInputs, _starter_fraction
 
 UNIT = xp.Coefficients(
     rate_only={p: (1.0, 0.0) for p in ("POR", "DEF", "MED", "DEL")},
@@ -119,3 +120,15 @@ def test_summarize_errors():
     assert s.bias == 0
     assert xp.summarize_errors([]).mae is None
     assert math.isclose(xp.summarize_errors([xp.ScoredPair(3, 0, "x")]).bias, 3)
+
+
+def test_injured_status_caps_the_published_chance():
+    s = _starter_fraction(XpInputs("DEL", [8, 9], None, starter_probability=50,
+                                   availability="injured"))
+    assert s == UNAVAILABLE_STARTER_CAP
+
+
+def test_doubtful_keeps_the_published_chance():
+    s = _starter_fraction(XpInputs("DEL", [8, 9], None, starter_probability=50,
+                                   availability="doubtful"))
+    assert s == 0.5

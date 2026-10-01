@@ -28,9 +28,9 @@ function payload(overrides: Partial<PlayerAnalytics> = {}): PlayerAnalytics {
         days: null, pct: null, ratePerDay: null, direction: null },
     ],
     power: {
-      score: 62.4, powerPpg: 6.24, recentAvg: 5.5, recentJornadas: 10, form: 1.5, consistency: 80,
-      formWeight: 0.5, consistencyWeight: 0.2, referencePpg: 10, expectedPoints: null,
-      expectedPointsUsed: false, availabilityNote: "Missed jornadas count as zeros.",
+      score: 62.4, powerPpg: 0.77, qualityPpg: 5.1, rate: 4.6, rateMatches: 6, prior: 4.2,
+      priorSource: "last_season", calibration: { a: 1.328, c: -0.839 }, availability: "injured",
+      availabilityFactor: 0.15, recentJornadas: 10, referencePpg: 10,
     },
     valuation: {
       marketValue: 20_000_000, fairValue: 30_000_000, gapPct: 50, reason: null,
@@ -73,6 +73,10 @@ describe("PlayerAnalyticsPanel (ANALYTICS-05)", () => {
     expect(screen.getByText(/over the last 10 of 10/)).toBeInTheDocument();
     expect(screen.getByText("no snapshot that far back")).toBeInTheDocument();
     expect(screen.getByText(/strong/)).toBeInTheDocument();
+    expect(screen.getByText(/× 0.15 \(injured\)/)).toBeInTheDocument();
+    expect(screen.getByText(/log-log/)).toBeInTheDocument();
+    expect(screen.queryByText(/exp\(/)).not.toBeInTheDocument();
+    expect(screen.getByText(/\^/)).toBeInTheDocument();
   });
 
   it("says why there is no valuation instead of showing a number", async () => {

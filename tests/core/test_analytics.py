@@ -5,10 +5,11 @@ from datetime import date
 
 import pytest
 
+from core import expected_points as xp
 from core.analytics import (
-    EXPECTED_POINTS_WEIGHT,
+    AVAILABILITY_FACTOR,
+    MIN_VALUATION_JORNADAS,
     GameweekRow,
-    PowerInputs,
     ValuationInput,
     build_timeline,
     consistency,
@@ -61,6 +62,29 @@ def test_series_restarts_first_appearance_per_season():
     mine = [r for r in data if r.player_id == 1]
     # 2026 weeks 1-2 predate his first 2026 row: not charged.
     assert player_series(timeline, mine, n=10) == [4, 4, 7]
+
+
+def test_timeline_keeps_a_flagged_top_week_the_calendar_says_is_final():
+    data = rows(1, 2026, {1: 1, 2: 2}, provisional=(2,))
+    assert build_timeline(data) == [(2026, 1)]
+    assert build_timeline(data, final_weeks={(2026, 2)}) == [(2026, 1), (2026, 2)]
+
+
+def test_series_skips_a_week_his_team_did_not_play():
+    # League played weeks 1-3; his club's week-2 match was postponed.
+    data = rows(1, 2026, {1: 6, 3: 4}) + rows(2, 2026, {1: 1, 2: 1, 3: 1})
+    timeline = build_timeline(data)
+    mine = [r for r in data if r.player_id == 1]
+    assert player_series(timeline, mine, n=10) == [6, 0, 4]
+    assert player_series(timeline, mine, n=10, team_weeks={(2026, 1), (2026, 3)}) == [6, 4]
+
+
+def test_series_still_zeroes_a_week_his_team_played_without_him():
+    data = rows(1, 2026, {1: 6, 3: 4}) + rows(2, 2026, {1: 1, 2: 1, 3: 1})
+    timeline = build_timeline(data)
+    mine = [r for r in data if r.player_id == 1]
+    played = {(2026, 1), (2026, 2), (2026, 3)}
+    assert player_series(timeline, mine, n=10, team_weeks=played) == [6, 0, 4]
 
 
 # --- form -----------------------------------------------------------------
@@ -124,45 +148,37 @@ def test_momentum_flat_threshold():
 # --- power ----------------------------------------------------------------
 
 
-def test_power_inputs_and_score():
-    series = [4] * 43  # 38 baseline + 5 form, perfectly steady
-    inputs = power_inputs(series)
-    assert inputs.recent_avg == pytest.approx(4.0)
-    assert inputs.form == pytest.approx(0.0)
-    assert inputs.consistency == pytest.approx(100.0)
-    result = power_score(inputs)
-    assert result.power_ppg == pytest.approx(4.0)
-    assert result.score == pytest.approx(40.0)
-    assert result.expected_points_used is False
+def test_power_with_no_history_is_the_prior():
+    inp = power_inputs([0], [], None, "MED", "available")
+    res = power_score(inp)
+    a, c = xp.RATE_ONLY["MED"]
+    assert res.quality_ppg == pytest.approx(max(0.0, a * xp.POSITION_PRIOR["MED"] + c))
+    assert 0 <= res.score <= 100
 
 
-def test_power_penalises_inconsistency_and_rewards_form():
-    base = PowerInputs(recent_avg=5, recent_jornadas=10, form=0, consistency=100)
-    shaky = PowerInputs(recent_avg=5, recent_jornadas=10, form=0, consistency=0)
-    rising = PowerInputs(recent_avg=5, recent_jornadas=10, form=2, consistency=100)
-    assert power_score(shaky).score < power_score(base).score < power_score(rising).score
-    assert power_score(shaky).power_ppg == pytest.approx(4.0)
+def test_power_is_shrunk_toward_the_prior_for_one_big_match():
+    one = power_score(power_inputs([20], [20], None, "DEL", "available"))
+    many = power_score(power_inputs([20] * 10, [20] * 10, None, "DEL", "available"))
+    assert one.quality_ppg < many.quality_ppg
 
 
-def test_power_clamps_to_0_100():
-    assert power_score(PowerInputs(30, 10, 0, 100)).score == 100.0
-    assert power_score(PowerInputs(-3, 10, 0, 0)).score == 0.0
+def test_injured_player_is_charged_by_availability():
+    fit = power_score(power_inputs([8] * 6, [8] * 6, 6.0, "DEL", "available"))
+    hurt = power_score(power_inputs([8] * 6, [8] * 6, 6.0, "DEL", "injured"))
+    assert hurt.quality_ppg == fit.quality_ppg
+    assert hurt.power_ppg == pytest.approx(fit.power_ppg * AVAILABILITY_FACTOR["injured"])
 
 
-def test_power_form_missing_counts_as_zero_tilt():
-    assert power_score(PowerInputs(5, 10, None, 100)).power_ppg == pytest.approx(5.0)
+def test_rising_from_negative_to_zero_is_not_rewarded():
+    # Audit: Beitia — recent avg 0 after a negative baseline scored Economy 96.9.
+    res = power_score(power_inputs([-3, -2, -2, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], None, "DEF",
+                                   "available"))
+    zero = power_score(power_inputs([0] * 8, [0] * 5, None, "DEF", "available"))
+    assert res.quality_ppg == pytest.approx(zero.quality_ppg)
 
 
-def test_power_is_none_without_recent_points():
-    assert power_inputs([]) is None
-
-
-def test_expected_points_hook_blends_when_given():
-    inputs = PowerInputs(recent_avg=4, recent_jornadas=10, form=0, consistency=100)
-    result = power_score(inputs, expected_points=8.0)
-    expected = (1 - EXPECTED_POINTS_WEIGHT) * 4 + EXPECTED_POINTS_WEIGHT * 8
-    assert result.power_ppg == pytest.approx(expected)
-    assert result.expected_points_used is True
+def test_power_without_series_is_none():
+    assert power_inputs([], [], None, "DEF", "available") is None
 
 
 # --- valuation and economy -------------------------------------------------
@@ -170,14 +186,14 @@ def test_expected_points_hook_blends_when_given():
 
 def _market(position, pairs, start_id=1):
     return [
-        ValuationInput(player_id=start_id + i, position=position, power_ppg=ppg, market_value=mv,
-                       recent_jornadas=10)
+        ValuationInput(player_id=start_id + i, position=position, quality_ppg=ppg, market_value=mv,
+                       recent_jornadas=10, starter_probability=70.0)
         for i, (ppg, mv) in enumerate(pairs)
     ]
 
 
-def test_fit_recovers_an_exact_log_linear_curve():
-    pairs = [(p, int(math.exp(14 + 0.5 * p))) for p in range(0, 20)]
+def test_fit_recovers_an_exact_log_log_curve():
+    pairs = [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 21)]
     fits = fit_fair_value(_market("DEF", pairs))
     assert fits["DEF"].intercept == pytest.approx(14, abs=1e-3)
     assert fits["DEF"].slope == pytest.approx(0.5, abs=1e-3)
@@ -185,17 +201,18 @@ def test_fit_recovers_an_exact_log_linear_curve():
 
 
 def test_small_positions_fall_back_to_the_pooled_fit():
-    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * p))) for p in range(20)])
+    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 21)])
     data += _market("POR", [(1, 2_000_000), (2, 3_000_000)], start_id=100)
     fits = fit_fair_value(data)
     assert fits["POR"].pooled is True
 
 
 def test_valuation_gap_and_economy_percentile():
-    pairs = [(p, int(math.exp(14 + 0.5 * p))) for p in range(1, 20)]
+    pairs = [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)]
     data = _market("MED", pairs)
-    cheap = ValuationInput(500, "MED", 10.0, int(math.exp(14 + 5) / 2), 10)  # half its fair value
-    dear = ValuationInput(501, "MED", 10.0, int(math.exp(14 + 5) * 2), 10)
+    fair_at_10 = math.exp(14 + 0.5 * math.log(10))
+    cheap = ValuationInput(500, "MED", 10.0, int(fair_at_10 / 2), 10, 70.0)  # half its fair value
+    dear = ValuationInput(501, "MED", 10.0, int(fair_at_10 * 2), 10, 70.0)
     result = valuations(data + [cheap, dear])
     assert result[500].gap == pytest.approx(1.0, rel=0.05)  # fair/actual - 1 = +100%
     assert result[501].gap == pytest.approx(-0.5, rel=0.05)
@@ -205,10 +222,93 @@ def test_valuation_gap_and_economy_percentile():
 
 
 def test_valuation_needs_evidence():
-    data = _market("DEL", [(p, int(math.exp(14 + 0.5 * p))) for p in range(1, 20)])
+    data = _market("DEL", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)])
     idle = ValuationInput(900, "DEL", 0.0, 500_000, 10)
     newcomer = ValuationInput(901, "DEL", 5.0, 5_000_000, 2)
     result = valuations(data + [idle, newcomer])
     assert result[900].gap is None and result[900].reason == "no points in the recent window"
     assert result[901].gap is None and "jornadas" in result[901].reason
     assert 900 not in economy_scores(result)
+
+
+def test_recent_avg_zero_gates_despite_shrunk_quality():
+    """Power v2 shrinks quality toward a prior, so a player who scores
+    nothing in his recent window still gets a small positive quality_ppg.
+    recent_avg — the raw mean, uncorrected — is the real "didn't score"
+    signal, and must still gate him out of the valuation."""
+    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)])
+    shrunk = ValuationInput(777, "DEF", 1.5, 2_000_000, 10, 70.0, recent_avg=0.0)
+    result = valuations(data + [shrunk])
+    assert result[777].gap is None
+    assert result[777].reason == "no points in the recent window"
+
+
+def test_fair_value_is_log_log_and_does_not_explode_for_stars():
+    data = [ValuationInput(i, "MED", ppg, int(1e6 * ppg ** 1.5), 10, 80)
+            for i, ppg in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 1)]
+    star = ValuationInput(99, "MED", 20.0, int(1e6 * 20 ** 1.5), 10, 90)
+    res = valuations(data + [star])
+    assert res[99].gap == pytest.approx(0.0, abs=0.05)
+
+
+def test_starter_gate_excludes_fringe_players():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70)
+            for i in range(1, 20)]
+    fringe = ValuationInput(50, "DEF", 2.0, 500_000, 5, 10)
+    res = valuations(base + [fringe])
+    assert res[50].gap is None
+    assert "starter" in res[50].reason
+
+
+def test_unknown_starter_probability_is_not_gated():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70)
+            for i in range(1, 20)]
+    unknown = ValuationInput(51, "DEF", 3.0, 2_000_000, 5, None)
+    assert valuations(base + [unknown])[51].gap is not None
+
+
+def test_exactly_30_percent_starter_is_excluded():
+    """The controller ruling made the starter gate strict: exactly 30%
+    (the source's common default bucket) no longer qualifies."""
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    borderline = ValuationInput(52, "DEF", 3.0, 2_000_000, 5, 30.0, current_matches=10)
+    result = valuations(base + [borderline])[52]
+    assert result.gap is None
+    assert result.reason == "starter probability 30% or below"
+
+
+def test_injured_player_is_excluded():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    injured = ValuationInput(53, "DEF", 3.0, 2_000_000, 10, 70.0, current_matches=10,
+                              availability="injured")
+    result = valuations(base + [injured])[53]
+    assert result.gap is None
+    assert result.reason == "unavailable (injured or suspended)"
+
+
+def test_zero_current_season_matches_is_excluded_despite_last_season_history():
+    """Power v2's shrunk quality_ppg can stay positive from last season's
+    prior alone; a player with no matches this season must still be
+    ineligible for a current valuation."""
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    benched_all_season = ValuationInput(54, "DEF", 3.0, 2_000_000, 10, 70.0, current_matches=0)
+    result = valuations(base + [benched_all_season])[54]
+    assert result.gap is None
+    assert result.reason == f"fewer than {MIN_VALUATION_JORNADAS} matches this season"
+
+
+def test_normal_player_with_matches_and_starter_role_is_still_valued():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70,
+                            current_matches=10)
+            for i in range(1, 20)]
+    normal = ValuationInput(55, "DEF", 3.5, 2_200_000, 10, 70.0, current_matches=10,
+                             availability="available")
+    result = valuations(base + [normal])[55]
+    assert result.gap is not None
+    assert result.reason is None

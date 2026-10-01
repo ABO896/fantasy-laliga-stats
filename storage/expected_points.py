@@ -12,7 +12,8 @@ question is the one after it. A lone postponed fixture left over from an
 old jornada does not make that jornada "next". Without a calendar, the
 jornada after the latest one with stored points, with no fixture context.
 
-**Power Score reads `expected_points_map`** — see its docstring.
+Power Score does **not** read expected points (Power v2, audit 2026-09-30);
+the transfer engine's expected return does, via `expected_points_map`.
 """
 
 import json
@@ -156,12 +157,7 @@ def compute_expected_points(
         if pid in all_players:
             team_rows[(all_players[pid], week)] += 1
 
-    prior_rows = session.exec(
-        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
-        .where(PlayerGameweekPoints.season_year == season - 1)
-        .group_by(PlayerGameweekPoints.player_id)
-    ).all()
-    prior = {pid: float(avg) for pid, avg in prior_rows}
+    prior = last_season_means(session, season)
 
     week_numbers = [w for w, _ in weeks if w != in_progress]
     out = []
@@ -293,13 +289,23 @@ def latest_expected_points(
     return {pid: (value, basis) for pid, value, basis in rows}
 
 
-def expected_points_map(session: Session, season: int | None = None) -> dict[int, float]:
-    """`{player_id: xP}` for the latest stored jornada — **the function Power
-    Score (ANALYTICS-06) blends in** via
-    `compute_player_analytics(session, expected_points=...)`.
+def last_season_means(session: Session, season: int) -> dict[int, float]:
+    """`{player_id: mean points per appearance}` over season − 1 — the prior
+    `xp.points_rate` shrinks toward, shared by xP and Power."""
+    rows = session.exec(
+        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
+        .where(PlayerGameweekPoints.season_year == season - 1)
+        .group_by(PlayerGameweekPoints.player_id)
+    ).all()
+    return {pid: float(avg) for pid, avg in rows}
 
-    `no_fixture` rows are left out: a blank jornada says nothing about how
-    good a player is, and Power is a quality score, not a fixture planner.
+
+def expected_points_map(session: Session, season: int | None = None) -> dict[int, float]:
+    """`{player_id: xP}` for the latest stored jornada — what the transfer
+    engine blends into expected return (`storage.transfers`).
+
+    `no_fixture` rows are left out: a blank jornada carries no fixture to
+    project, so it says nothing the backward-looking return does not.
     """
     return {
         pid: value
@@ -399,7 +405,10 @@ def score_expected_points(session: Session) -> list[ScoredPrediction]:
     still in progress. `unscorable`: the week is final but his team has no
     rows — a blank or a data gap, never averaged over as a zero.
     """
-    preds = session.exec(select(ExpectedPointsPrediction)).all()
+    preds = session.exec(
+        select(ExpectedPointsPrediction)
+        .where(ExpectedPointsPrediction.model_version == xp.MODEL_VERSION)
+    ).all()
     if not preds:
         return []
     teams = {p.id: p.team for p in session.exec(select(Player)).all()}

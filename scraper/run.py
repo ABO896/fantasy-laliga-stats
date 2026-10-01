@@ -61,12 +61,19 @@ from storage.repository import (
     upsert_gameweek_points,
     upsert_players,
     upsert_season_stats,
+    weeks_to_refetch,
 )
+
+#: A final jornada normally has all 20 clubs. Fewer is recorded as a note on
+#: the dataset run (a postponed match, or a capture problem) — not a failure.
+MIN_FINAL_CLUBS = 18
 
 
 def ingest_jornada_points(session, run, settings) -> None:
     """Store the current season's active jornada, plus any earlier week of
-    this season not yet stored.
+    this season not yet stored or stored stale (`weeks_to_refetch`:
+    captured mid-play, or a postponed match has since finished). Re-fetched
+    weeks are written final, which also clears a stale provisional flag.
 
     A week that cannot be fetched or that the site answers with a fallback
     is recorded and skipped, not fatal: per the spec's criterion 5 a missed
@@ -90,13 +97,19 @@ def ingest_jornada_points(session, run, settings) -> None:
     written = unresolved = 0
     gaps: list[str] = []
     already = stored_weeks(session, season)
+    stale = weeks_to_refetch(session, season)
+    wanted = [w for w in latest.rounds
+              if w != latest.week and (w not in already or w in stale)]
 
-    for week in [w for w in latest.rounds if w != latest.week and w not in already]:
+    for week in wanted:
         try:
             snapshot = parse_jornada(fetch_jornada(season, week, settings), requested_week=week)
         except (ScrapeError, ValueError) as exc:
             gaps.append(f"week {week}: {type(exc).__name__}: {exc}")
             continue
+        clubs = {r["team_name"] for r in snapshot.records if r["team_name"] and not r["is_coach"]}
+        if len(clubs) < MIN_FINAL_CLUBS:
+            gaps.append(f"week {week}: only {len(clubs)} clubs published")
         res = resolve_players(session, snapshot.records, name_field="player_name")
         written += upsert_gameweek_points(
             session, season, week, False, snapshot.records, res, run.id
@@ -406,11 +419,12 @@ def run_daily_refresh(run_id: int | None = None):
                 # or classified failure — only an unclassified market bug
                 # skips them, matching the existing fail-loud behavior for
                 # genuine bugs.
+                # First: the re-fetch rule reads which fixtures have gone final.
+                ingest_fixtures(session, run, settings)
                 ingest_jornada_points(session, run, settings)
                 ingest_season_stats(session, run, settings)
                 ingest_points_predictions(session, run, settings)
                 ingest_market_predictions(session, run, settings)
-                ingest_fixtures(session, run, settings)
 
                 # The overall status stays "success" only when no dataset
                 # (including "market") ended "failed" — `not_published` and
