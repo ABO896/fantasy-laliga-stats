@@ -38,16 +38,16 @@ export interface MomentumBlock {
 export interface PowerBlock {
   score: number;
   powerPpg: number;
-  recentAvg: number;
+  qualityPpg: number;
+  rate: number;
+  rateMatches: number;
+  prior: number;
+  priorSource: "last_season" | "position";
+  calibration: { a: number; c: number };
+  availability: string | null;
+  availabilityFactor: number;
   recentJornadas: number;
-  form: number | null;
-  consistency: number;
-  formWeight: number;
-  consistencyWeight: number;
   referencePpg: number;
-  expectedPoints: number | null;
-  expectedPointsUsed: boolean;
-  availabilityNote: string;
 }
 
 export interface ValuationBlock {
