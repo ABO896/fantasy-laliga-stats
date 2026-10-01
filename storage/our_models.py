@@ -20,6 +20,7 @@ from core import market_model as mm
 from core.config import get_settings
 from core.xp_backtest import MIN_TEAM_ROWS
 from storage.db import as_utc
+from storage.expected_points import last_season_means
 from storage.models import (
     Fixture,
     MarketPrediction,
@@ -154,11 +155,7 @@ def compute_player_analytics(
     by_player: dict[int, list[an.GameweekRow]] = defaultdict(list)
     for r in gw_rows:
         by_player[r.player_id].append(r)
-    prior = dict(session.exec(
-        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
-        .where(PlayerGameweekPoints.season_year == season - 1)
-        .group_by(PlayerGameweekPoints.player_id)
-    ).all())
+    prior = last_season_means(session, season)
     season_timeline = [k for k in timeline if k[0] == season]
 
     window = an.FORM_WINDOW + an.BASELINE_WINDOW

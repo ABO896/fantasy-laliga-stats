@@ -157,12 +157,7 @@ def compute_expected_points(
         if pid in all_players:
             team_rows[(all_players[pid], week)] += 1
 
-    prior_rows = session.exec(
-        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
-        .where(PlayerGameweekPoints.season_year == season - 1)
-        .group_by(PlayerGameweekPoints.player_id)
-    ).all()
-    prior = {pid: float(avg) for pid, avg in prior_rows}
+    prior = last_season_means(session, season)
 
     week_numbers = [w for w, _ in weeks if w != in_progress]
     out = []
@@ -292,6 +287,17 @@ def latest_expected_points(
         .where(ExpectedPointsPrediction.model_version == xp.MODEL_VERSION)
     ).all()
     return {pid: (value, basis) for pid, value, basis in rows}
+
+
+def last_season_means(session: Session, season: int) -> dict[int, float]:
+    """`{player_id: mean points per appearance}` over season − 1 — the prior
+    `xp.points_rate` shrinks toward, shared by xP and Power."""
+    rows = session.exec(
+        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
+        .where(PlayerGameweekPoints.season_year == season - 1)
+        .group_by(PlayerGameweekPoints.player_id)
+    ).all()
+    return {pid: float(avg) for pid, avg in rows}
 
 
 def expected_points_map(session: Session, season: int | None = None) -> dict[int, float]:
