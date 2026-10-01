@@ -41,6 +41,10 @@ AVAILABILITY_FACTOR = {"available": 1.0, "doubtful": 0.6, "suspended": 0.5, "inj
 MIN_VALUATION_JORNADAS = 3
 #: A position with fewer eligible players than this uses the pooled fit.
 MIN_POSITION_FIT = 15
+#: Below this published starter probability a player isn't valued: a
+#: floor-priced fringe player with a few points otherwise reads as the best
+#: value in the game (audit F6 — the top Economy quintile scored least).
+MIN_VALUATION_STARTER = 30.0
 
 
 class GameweekRow(NamedTuple):
@@ -295,6 +299,11 @@ class ValuationInput:
     market_value: int
     recent_jornadas: int
     starter_probability: float | None = None
+    #: Raw mean of his last `RECENT_WINDOW` series points, uncorrected by
+    #: Power's shrinkage. `None` means not checked. Power v2's quality is
+    #: shrunk toward a prior, so a player who scores nothing still gets a
+    #: small positive `quality_ppg`; this is the real "didn't play" signal.
+    recent_avg: float | None = None
 
 
 @dataclass(frozen=True)
@@ -319,8 +328,12 @@ def _eligibility(v: ValuationInput) -> str | None:
         return f"fewer than {MIN_VALUATION_JORNADAS} jornadas in the recent window"
     if v.quality_ppg <= 0:
         return "no points in the recent window"
+    if v.recent_avg is not None and v.recent_avg <= 0:
+        return "no points in the recent window"
     if v.market_value <= 0:
         return "no market value"
+    if v.starter_probability is not None and v.starter_probability < MIN_VALUATION_STARTER:
+        return f"starter probability below {MIN_VALUATION_STARTER:.0f}%"
     return None
 
 
@@ -341,10 +354,13 @@ def _ols(points: Sequence[tuple[float, float]]) -> tuple[float, float, float | N
 
 
 def fit_fair_value(data: Iterable[ValuationInput]) -> dict[str, FairValueFit]:
-    """`ln(market_value) = a + b·quality_ppg` per position, over the eligible
-    players only. A position with too few players borrows the pooled fit."""
+    """`ln(market_value) = a + b·ln(quality_ppg)` per position, over the
+    eligible players only. Log-log, not exponential: the exponential curve
+    valued a top scorer at ~8x anything the market pays (audit F5) — the
+    same reason MODEL-05's bargains moved to log-log. A position with too
+    few players borrows the pooled fit."""
     eligible = [v for v in data if _eligibility(v) is None]
-    pts = lambda vs: [(v.quality_ppg, math.log(v.market_value)) for v in vs]  # noqa: E731
+    pts = lambda vs: [(math.log(v.quality_ppg), math.log(v.market_value)) for v in vs]  # noqa: E731
     pooled = _ols(pts(eligible))
     fits: dict[str, FairValueFit] = {}
     for position in {v.position for v in eligible}:
@@ -358,9 +374,9 @@ def fit_fair_value(data: Iterable[ValuationInput]) -> dict[str, FairValueFit]:
 
 
 def valuations(data: Sequence[ValuationInput]) -> dict[int, ValuationResult]:
-    """ANALYTICS-04 — each player's price against what his Power usually costs
-    at his position. Built from market values and points only; the source's
-    ideal/max bid numbers are deliberately not an input."""
+    """ANALYTICS-04 — each player's price against what his quality points per
+    match usually costs at his position. Built from market values and points
+    only; the source's ideal/max bid numbers are deliberately not an input."""
     fits = fit_fair_value(data)
     out: dict[int, ValuationResult] = {}
     for v in data:
@@ -371,15 +387,16 @@ def valuations(data: Sequence[ValuationInput]) -> dict[int, ValuationResult]:
         if reason is not None:
             out[v.player_id] = ValuationResult(None, None, fit, reason)
             continue
-        fair = math.exp(fit.intercept + fit.slope * v.quality_ppg)
+        fair = math.exp(fit.intercept + fit.slope * math.log(v.quality_ppg))
         out[v.player_id] = ValuationResult(round(fair), fair / v.market_value - 1, fit, None)
     return out
 
 
 def economy_scores(results: dict[int, ValuationResult]) -> dict[int, float]:
-    """ANALYTICS-07 — the valuation gap as a 0–100 percentile rank: 100 is
-    the player priced furthest below what his production costs. Economy adds
-    price to Power and nothing else; it *is* ANALYTICS-04, re-expressed."""
+    """ANALYTICS-07 — the log-log valuation gap as a 0–100 percentile rank:
+    100 is the player priced furthest below what his production costs.
+    Economy adds price to Power and nothing else; it *is* ANALYTICS-04,
+    re-expressed."""
     scored = {pid: math.log1p(r.gap) for pid, r in results.items() if r.gap is not None}
     if not scored:
         return {}

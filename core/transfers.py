@@ -62,8 +62,9 @@ STARTER_FLOOR = 0.5
 MAX_BID_HORIZON_UPDATES = 3
 #: Share of the valuation gap (fair / market − 1, when positive) worth
 #: paying over market value. The gap is capped at `MAX_GAP_COUNTED` first:
-#: ANALYTICS-04's curve is exponential, so a star's fair value extrapolates
-#: far beyond anything the market pays.
+#: not because ANALYTICS-04's log-log curve explodes (it no longer does),
+#: but because the gap itself is noisy enough that an uncapped one would
+#: let a single outlier dominate the bid.
 SURPLUS_SHARE = 0.10
 MAX_GAP_COUNTED = 1.0
 #: A maximum bid never exceeds market value by more than this.

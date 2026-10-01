@@ -186,13 +186,13 @@ def test_power_without_series_is_none():
 def _market(position, pairs, start_id=1):
     return [
         ValuationInput(player_id=start_id + i, position=position, quality_ppg=ppg, market_value=mv,
-                       recent_jornadas=10)
+                       recent_jornadas=10, starter_probability=70.0)
         for i, (ppg, mv) in enumerate(pairs)
     ]
 
 
-def test_fit_recovers_an_exact_log_linear_curve():
-    pairs = [(p, int(math.exp(14 + 0.5 * p))) for p in range(0, 20)]
+def test_fit_recovers_an_exact_log_log_curve():
+    pairs = [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 21)]
     fits = fit_fair_value(_market("DEF", pairs))
     assert fits["DEF"].intercept == pytest.approx(14, abs=1e-3)
     assert fits["DEF"].slope == pytest.approx(0.5, abs=1e-3)
@@ -200,17 +200,18 @@ def test_fit_recovers_an_exact_log_linear_curve():
 
 
 def test_small_positions_fall_back_to_the_pooled_fit():
-    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * p))) for p in range(20)])
+    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 21)])
     data += _market("POR", [(1, 2_000_000), (2, 3_000_000)], start_id=100)
     fits = fit_fair_value(data)
     assert fits["POR"].pooled is True
 
 
 def test_valuation_gap_and_economy_percentile():
-    pairs = [(p, int(math.exp(14 + 0.5 * p))) for p in range(1, 20)]
+    pairs = [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)]
     data = _market("MED", pairs)
-    cheap = ValuationInput(500, "MED", 10.0, int(math.exp(14 + 5) / 2), 10)  # half its fair value
-    dear = ValuationInput(501, "MED", 10.0, int(math.exp(14 + 5) * 2), 10)
+    fair_at_10 = math.exp(14 + 0.5 * math.log(10))
+    cheap = ValuationInput(500, "MED", 10.0, int(fair_at_10 / 2), 10, 70.0)  # half its fair value
+    dear = ValuationInput(501, "MED", 10.0, int(fair_at_10 * 2), 10, 70.0)
     result = valuations(data + [cheap, dear])
     assert result[500].gap == pytest.approx(1.0, rel=0.05)  # fair/actual - 1 = +100%
     assert result[501].gap == pytest.approx(-0.5, rel=0.05)
@@ -220,10 +221,46 @@ def test_valuation_gap_and_economy_percentile():
 
 
 def test_valuation_needs_evidence():
-    data = _market("DEL", [(p, int(math.exp(14 + 0.5 * p))) for p in range(1, 20)])
+    data = _market("DEL", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)])
     idle = ValuationInput(900, "DEL", 0.0, 500_000, 10)
     newcomer = ValuationInput(901, "DEL", 5.0, 5_000_000, 2)
     result = valuations(data + [idle, newcomer])
     assert result[900].gap is None and result[900].reason == "no points in the recent window"
     assert result[901].gap is None and "jornadas" in result[901].reason
     assert 900 not in economy_scores(result)
+
+
+def test_recent_avg_zero_gates_despite_shrunk_quality():
+    """Power v2 shrinks quality toward a prior, so a player who scores
+    nothing in his recent window still gets a small positive quality_ppg.
+    recent_avg — the raw mean, uncorrected — is the real "didn't score"
+    signal, and must still gate him out of the valuation."""
+    data = _market("DEF", [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)])
+    shrunk = ValuationInput(777, "DEF", 1.5, 2_000_000, 10, 70.0, recent_avg=0.0)
+    result = valuations(data + [shrunk])
+    assert result[777].gap is None
+    assert result[777].reason == "no points in the recent window"
+
+
+def test_fair_value_is_log_log_and_does_not_explode_for_stars():
+    data = [ValuationInput(i, "MED", ppg, int(1e6 * ppg ** 1.5), 10, 80)
+            for i, ppg in enumerate([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15], 1)]
+    star = ValuationInput(99, "MED", 20.0, int(1e6 * 20 ** 1.5), 10, 90)
+    res = valuations(data + [star])
+    assert res[99].gap == pytest.approx(0.0, abs=0.05)
+
+
+def test_starter_gate_excludes_fringe_players():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70)
+            for i in range(1, 20)]
+    fringe = ValuationInput(50, "DEF", 2.0, 500_000, 5, 10)
+    res = valuations(base + [fringe])
+    assert res[50].gap is None
+    assert "starter" in res[50].reason
+
+
+def test_unknown_starter_probability_is_not_gated():
+    base = [ValuationInput(i, "DEF", 3.0 + i / 10, int(2e6 + i * 1e5), 10, 70)
+            for i in range(1, 20)]
+    unknown = ValuationInput(51, "DEF", 3.0, 2_000_000, 5, None)
+    assert valuations(base + [unknown])[51].gap is not None
