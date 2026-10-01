@@ -1,6 +1,8 @@
 from datetime import UTC, datetime
 from pathlib import Path
 
+from sqlmodel import select
+
 from scraper.errors import ScrapeBlocked
 from scraper.run import (
     ingest_jornada_points,
@@ -177,3 +179,30 @@ def test_prediction_ingests_write_rows_end_to_end(session, monkeypatch):
     assert runs["points_predictions"].row_count > 0
     assert runs["market_predictions"].status == "success"
     assert runs["market_predictions"].row_count > 0
+
+
+def test_a_stored_provisional_week_is_refetched_and_cleared(session, monkeypatch):
+    now = datetime.now(UTC)
+    session.add(Player(external_id="oso-341453", name="Oso", team="Sevilla FC",
+                       position="DEF", created_at=now, updated_at=now))
+    session.commit()
+    old = _run(session)
+    player = session.exec(select(Player)).one()
+    # Week 1 was captured mid-play: flagged, and only one row.
+    session.add(PlayerGameweekPoints(season_year=2026, week=1, player_id=player.id, points=0,
+                                     is_provisional=True, scrape_run_id=old.id))
+    session.commit()
+
+    calls = []
+    fetch = _jornada_fetcher()
+
+    def counting(season_year, week, settings=None):
+        calls.append(week)
+        return fetch(season_year, week, settings)
+
+    monkeypatch.setattr("scraper.run.fetch_jornada", counting)
+    ingest_jornada_points(session, _run(session), None)
+
+    assert 1 in calls, "a stored provisional week must be re-fetched"
+    week1 = session.exec(select(PlayerGameweekPoints).where(PlayerGameweekPoints.week == 1)).all()
+    assert week1 and not any(r.is_provisional for r in week1)

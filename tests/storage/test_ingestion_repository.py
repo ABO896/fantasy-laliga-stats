@@ -1,8 +1,15 @@
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 from scraper.sources.af_season_stats import parse_season_stats
-from storage.models import Player, PlayerSeasonStats, ScrapeRun, SourcePrediction
+from storage.models import (
+    Fixture,
+    Player,
+    PlayerGameweekPoints,
+    PlayerSeasonStats,
+    ScrapeRun,
+    SourcePrediction,
+)
 from storage.repository import (
     _SEASON_STATS_RECORD_FIELDS,
     finish_dataset_run,
@@ -15,6 +22,7 @@ from storage.repository import (
     stored_weeks,
     upsert_gameweek_points,
     upsert_season_stats,
+    weeks_to_refetch,
 )
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "phase7"
@@ -530,3 +538,49 @@ def test_season_stats_record_fields_match_what_the_parser_emits(session):
     record = stats.records[0]
     missing = [name for name in _SEASON_STATS_RECORD_FIELDS if name not in record]
     assert missing == []
+
+
+def _seed_week(session, week, provisional, started_at):
+    now = datetime.now(UTC)
+    player = session.get(Player, 1) or Player(
+        id=1, external_id="p-1", name="P", team="Sevilla FC", position="DEF",
+        created_at=now, updated_at=now,
+    )
+    session.add(player)
+    run = ScrapeRun(started_at=started_at, status="success")
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=1, points=3,
+                                     is_provisional=provisional, scrape_run_id=run.id))
+    session.commit()
+
+
+def _fixture(session, fid, matchday, kickoff, final):
+    session.add(Fixture(fixture_id=fid, matchday=matchday, kickoff_utc=kickoff,
+                        kickoff_confirmed=True, is_final=final, home_team="Sevilla FC",
+                        away_team="Getafe", scraped_at=datetime.now(UTC)))
+    session.commit()
+
+
+def test_provisional_weeks_are_refetched(session):
+    t = datetime(2026, 9, 16, 10, tzinfo=UTC)
+    _seed_week(session, 5, False, t)
+    _seed_week(session, 6, True, t)
+    assert weeks_to_refetch(session, 2026) == {6}
+
+
+def test_a_week_with_a_late_final_fixture_is_refetched(session):
+    captured = datetime(2026, 10, 1, 9, tzinfo=UTC)
+    _seed_week(session, 6, False, captured)
+    _fixture(session, 1, 6, datetime(2026, 9, 20, 19, tzinfo=UTC), True)   # before capture
+    assert weeks_to_refetch(session, 2026) == set()
+    _fixture(session, 2, 6, captured + timedelta(days=20), True)            # postponed, now final
+    assert weeks_to_refetch(session, 2026) == {6}
+
+
+def test_a_postponed_fixture_not_yet_final_does_not_trigger_a_refetch(session):
+    captured = datetime(2026, 10, 1, 9, tzinfo=UTC)
+    _seed_week(session, 6, False, captured)
+    _fixture(session, 2, 6, captured + timedelta(days=20), False)
+    assert weeks_to_refetch(session, 2026) == set()

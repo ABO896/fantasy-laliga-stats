@@ -736,6 +736,40 @@ def stored_weeks(session: Session, season_year: int) -> set[int]:
     return set(rows)
 
 
+def weeks_to_refetch(session: Session, season_year: int) -> set[int]:
+    """Stored weeks of a season whose rows may be incomplete.
+
+    Two ways a stored week goes stale. It was captured while in progress
+    (`is_provisional`), and the ingest never re-fetched it once a later week
+    existed — 2026/27 week 6 sat at 6 of 20 clubs for two weeks that way.
+    Or it was fetched as final while a match was postponed, and that match
+    has since been played: a `Fixture` of the same matchday is final and
+    kicked off after the run that stored the week started.
+    """
+    provisional = set(
+        session.exec(
+            select(distinct(PlayerGameweekPoints.week))
+            .where(PlayerGameweekPoints.season_year == season_year)
+            .where(PlayerGameweekPoints.is_provisional == True)  # noqa: E712
+        ).all()
+    )
+    captured = {
+        week: as_utc(started)
+        for week, started in session.exec(
+            select(PlayerGameweekPoints.week, func.max(ScrapeRun.started_at))
+            .join(ScrapeRun, ScrapeRun.id == PlayerGameweekPoints.scrape_run_id)
+            .where(PlayerGameweekPoints.season_year == season_year)
+            .group_by(PlayerGameweekPoints.week)
+        ).all()
+    }
+    late = {
+        f.matchday
+        for f in session.exec(select(Fixture).where(Fixture.is_final == True)).all()  # noqa: E712
+        if f.matchday in captured and as_utc(f.kickoff_utc) > captured[f.matchday]
+    }
+    return provisional | late
+
+
 def get_dataset_runs(session: Session, scrape_run_id: int) -> list[DatasetRun]:
     """Every dataset outcome recorded within one scrape run, oldest first."""
     return list(
