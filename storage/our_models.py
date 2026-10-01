@@ -20,7 +20,6 @@ from core import market_model as mm
 from core.config import get_settings
 from core.xp_backtest import MIN_TEAM_ROWS
 from storage.db import as_utc
-from storage.expected_points import expected_points_map
 from storage.models import (
     Fixture,
     MarketPrediction,
@@ -126,25 +125,24 @@ class PlayerAnalytics:
 
 def compute_player_analytics(
     session: Session,
-    expected_points: dict[int, float] | None = None,
     now: datetime | None = None,
     season: int | None = None,
 ) -> dict[int, PlayerAnalytics]:
     """Power, Economy and their components for every player in the latest
     snapshot.
 
-    `expected_points` is **the MODEL-02 hook**: a `{player_id: expected
-    points next jornada}` map. When given, each player's Power blends it in
-    (see `core.analytics.power_score`). Every caller passes nothing today.
+    Power v2 reads his current-season points per team match, shrunk toward
+    last season's mean (`core.analytics.power_score`). Expected points for the
+    next fixture are deliberately not blended in — they are their own number.
     """
-    expected_points = expected_points or {}
     now = now or datetime.now(UTC)
     season = season or get_settings().current_season_year
     latest = _latest_as_of(session)
     if latest is None:
         return {}
     market = session.exec(
-        select(PlayerSnapshot.player_id, PlayerSnapshot.market_value, Player.position)
+        select(PlayerSnapshot.player_id, PlayerSnapshot.market_value, Player.position,
+               PlayerSnapshot.availability_status, PlayerSnapshot.starter_probability)
         .join(Player, Player.id == PlayerSnapshot.player_id)
         .where(PlayerSnapshot.as_of == latest)
     ).all()
@@ -156,23 +154,28 @@ def compute_player_analytics(
     by_player: dict[int, list[an.GameweekRow]] = defaultdict(list)
     for r in gw_rows:
         by_player[r.player_id].append(r)
+    prior = dict(session.exec(
+        select(PlayerGameweekPoints.player_id, func.avg(PlayerGameweekPoints.points))
+        .where(PlayerGameweekPoints.season_year == season - 1)
+        .group_by(PlayerGameweekPoints.player_id)
+    ).all())
+    season_timeline = [k for k in timeline if k[0] == season]
 
     window = an.FORM_WINDOW + an.BASELINE_WINDOW
     partial = {}
     val_inputs = []
-    for pid, market_value, position in market:
-        series = an.player_series(
-            timeline, by_player.get(pid, []), n=window,
-            team_weeks=played.get(team_of.get(pid), set()),
-        )
-        inputs = an.power_inputs(series)
-        power = an.power_score(inputs, expected_points.get(pid)) if inputs else None
+    for pid, market_value, position, availability, starter in market:
+        team_weeks = played.get(team_of.get(pid), set())
+        rows_p = by_player.get(pid, [])
+        series = an.player_series(timeline, rows_p, n=window, team_weeks=team_weeks)
+        history = an.player_series(season_timeline, rows_p, n=len(season_timeline),
+                                   team_weeks=team_weeks)
+        inputs = an.power_inputs(series, history, prior.get(pid), position, availability)
+        power = an.power_score(inputs) if inputs else None
         partial[pid] = (series, inputs, power, market_value)
         if power is not None:
-            val_inputs.append(
-                an.ValuationInput(pid, position, power.power_ppg, market_value,
-                                  inputs.recent_jornadas)
-            )
+            val_inputs.append(an.ValuationInput(pid, position, power.quality_ppg, market_value,
+                                                inputs.recent_jornadas, starter))
 
     vals = an.valuations(val_inputs)
     econ = an.economy_scores(vals)
@@ -208,9 +211,7 @@ def player_analytics_payload(
     session: Session, player_id: int, windows: list[int]
 ) -> dict | None:
     """ANALYTICS-05: every metric with its inputs and its window."""
-    all_analytics = compute_player_analytics(
-        session, expected_points=expected_points_map(session)
-    )
+    all_analytics = compute_player_analytics(session)
     a = all_analytics.get(player_id)
     history = [
         (s.as_of, s.market_value) for s in load_snapshot_points(session, [player_id])[player_id]
@@ -264,19 +265,16 @@ def player_analytics_payload(
         "power": a and a.power and {
             "score": _round(a.power.score, 1),
             "powerPpg": _round(a.power.power_ppg),
-            "recentAvg": _round(a.power_inputs.recent_avg),
+            "qualityPpg": _round(a.power.quality_ppg),
+            "rate": _round(a.power_inputs.rate),
+            "rateMatches": a.power_inputs.rate_matches,
+            "prior": _round(a.power_inputs.prior),
+            "priorSource": a.power_inputs.prior_source,
+            "calibration": {"a": a.power.calibration[0], "c": a.power.calibration[1]},
+            "availability": a.power_inputs.availability,
+            "availabilityFactor": a.power.availability_factor,
             "recentJornadas": a.power_inputs.recent_jornadas,
-            "form": _round(a.power_inputs.form),
-            "consistency": _round(a.power_inputs.consistency, 1),
-            "formWeight": an.FORM_WEIGHT,
-            "consistencyWeight": an.CONSISTENCY_WEIGHT,
             "referencePpg": an.POWER_REFERENCE_PPG,
-            "expectedPoints": a.power.expected_points,
-            "expectedPointsUsed": a.power.expected_points_used,
-            "availabilityNote": (
-                "Missed jornadas count as zeros in recent points and consistency; "
-                "current injury status is not charged again."
-            ),
         },
         "valuation": a and a.valuation and {
             "marketValue": a.market_value,

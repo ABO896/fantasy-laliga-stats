@@ -5,10 +5,10 @@ from datetime import date
 
 import pytest
 
+from core import expected_points as xp
 from core.analytics import (
-    EXPECTED_POINTS_WEIGHT,
+    AVAILABILITY_FACTOR,
     GameweekRow,
-    PowerInputs,
     ValuationInput,
     build_timeline,
     consistency,
@@ -147,45 +147,37 @@ def test_momentum_flat_threshold():
 # --- power ----------------------------------------------------------------
 
 
-def test_power_inputs_and_score():
-    series = [4] * 43  # 38 baseline + 5 form, perfectly steady
-    inputs = power_inputs(series)
-    assert inputs.recent_avg == pytest.approx(4.0)
-    assert inputs.form == pytest.approx(0.0)
-    assert inputs.consistency == pytest.approx(100.0)
-    result = power_score(inputs)
-    assert result.power_ppg == pytest.approx(4.0)
-    assert result.score == pytest.approx(40.0)
-    assert result.expected_points_used is False
+def test_power_with_no_history_is_the_prior():
+    inp = power_inputs([0], [], None, "MED", "available")
+    res = power_score(inp)
+    a, c = xp.RATE_ONLY["MED"]
+    assert res.quality_ppg == pytest.approx(max(0.0, a * xp.POSITION_PRIOR["MED"] + c))
+    assert 0 <= res.score <= 100
 
 
-def test_power_penalises_inconsistency_and_rewards_form():
-    base = PowerInputs(recent_avg=5, recent_jornadas=10, form=0, consistency=100)
-    shaky = PowerInputs(recent_avg=5, recent_jornadas=10, form=0, consistency=0)
-    rising = PowerInputs(recent_avg=5, recent_jornadas=10, form=2, consistency=100)
-    assert power_score(shaky).score < power_score(base).score < power_score(rising).score
-    assert power_score(shaky).power_ppg == pytest.approx(4.0)
+def test_power_is_shrunk_toward_the_prior_for_one_big_match():
+    one = power_score(power_inputs([20], [20], None, "DEL", "available"))
+    many = power_score(power_inputs([20] * 10, [20] * 10, None, "DEL", "available"))
+    assert one.quality_ppg < many.quality_ppg
 
 
-def test_power_clamps_to_0_100():
-    assert power_score(PowerInputs(30, 10, 0, 100)).score == 100.0
-    assert power_score(PowerInputs(-3, 10, 0, 0)).score == 0.0
+def test_injured_player_is_charged_by_availability():
+    fit = power_score(power_inputs([8] * 6, [8] * 6, 6.0, "DEL", "available"))
+    hurt = power_score(power_inputs([8] * 6, [8] * 6, 6.0, "DEL", "injured"))
+    assert hurt.quality_ppg == fit.quality_ppg
+    assert hurt.power_ppg == pytest.approx(fit.power_ppg * AVAILABILITY_FACTOR["injured"])
 
 
-def test_power_form_missing_counts_as_zero_tilt():
-    assert power_score(PowerInputs(5, 10, None, 100)).power_ppg == pytest.approx(5.0)
+def test_rising_from_negative_to_zero_is_not_rewarded():
+    # Audit: Beitia — recent avg 0 after a negative baseline scored Economy 96.9.
+    res = power_score(power_inputs([-3, -2, -2, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0], None, "DEF",
+                                   "available"))
+    zero = power_score(power_inputs([0] * 8, [0] * 5, None, "DEF", "available"))
+    assert res.quality_ppg == pytest.approx(zero.quality_ppg)
 
 
-def test_power_is_none_without_recent_points():
-    assert power_inputs([]) is None
-
-
-def test_expected_points_hook_blends_when_given():
-    inputs = PowerInputs(recent_avg=4, recent_jornadas=10, form=0, consistency=100)
-    result = power_score(inputs, expected_points=8.0)
-    expected = (1 - EXPECTED_POINTS_WEIGHT) * 4 + EXPECTED_POINTS_WEIGHT * 8
-    assert result.power_ppg == pytest.approx(expected)
-    assert result.expected_points_used is True
+def test_power_without_series_is_none():
+    assert power_inputs([], [], None, "DEF", "available") is None
 
 
 # --- valuation and economy -------------------------------------------------
@@ -193,7 +185,7 @@ def test_expected_points_hook_blends_when_given():
 
 def _market(position, pairs, start_id=1):
     return [
-        ValuationInput(player_id=start_id + i, position=position, power_ppg=ppg, market_value=mv,
+        ValuationInput(player_id=start_id + i, position=position, quality_ppg=ppg, market_value=mv,
                        recent_jornadas=10)
         for i, (ppg, mv) in enumerate(pairs)
     ]

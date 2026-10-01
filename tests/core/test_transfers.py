@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from core import analytics as an
 from core.fixture_difficulty import TeamFixture
 from core.rules import load_rules
 from core.squad_rules import SquadMember
@@ -461,3 +462,7 @@ def test_a_good_backup_goalkeeper_is_not_worth_buying_over_an_outfield_upgrade()
     moves = suggest_moves(squad, _assess([*owned, keeper, winger]), RULES, None, _fresh(), 3)
     assert moves[0].buy.player_id == 101
     assert all(m.buy.player_id != 100 for m in moves)
+
+
+def test_availability_factor_is_shared_with_power():
+    assert AVAILABILITY_FACTOR is an.AVAILABILITY_FACTOR

@@ -17,6 +17,8 @@ from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import NamedTuple
 
+from core import expected_points as xp
+
 #: Last N timeline jornadas that make up "form".
 FORM_WINDOW = 5
 #: The trailing baseline form is compared against — one season's worth,
@@ -29,16 +31,12 @@ RECENT_WINDOW = 10
 DEFAULT_MOMENTUM_WINDOWS = (1, 7, 14, 30)
 #: |pct| below this reads as flat rather than as a direction.
 FLAT_THRESHOLD_PCT = 0.25
-#: How strongly form tilts Power towards the recent trajectory.
-FORM_WEIGHT = 0.5
-#: Share of Power that consistency can take away: fully erratic scores 0.8×.
-CONSISTENCY_WEIGHT = 0.2
 #: power_ppg that maps to a Power Score of 100. Calibrated on 2026-09-16:
 #: the 99th percentile of power_ppg across 473 players was 9.7.
 POWER_REFERENCE_PPG = 10.0
-#: MODEL-02's share of Power once it supplies expected points. Unused until
-#: then — every caller today passes `expected_points=None`.
-EXPECTED_POINTS_WEIGHT = 0.5
+#: Chance-of-playing multiplier by the source's availability status. Assumed;
+#: unknown statuses read as available. Shared with the transfer engine.
+AVAILABILITY_FACTOR = {"available": 1.0, "doubtful": 0.6, "suspended": 0.5, "injured": 0.15}
 #: Minimum jornadas in the recent window before a valuation is attempted.
 MIN_VALUATION_JORNADAS = 3
 #: A position with fewer eligible players than this uses the pooled fit.
@@ -223,59 +221,67 @@ def value_momentum(
 
 @dataclass(frozen=True)
 class PowerInputs:
-    recent_avg: float
+    position: str
+    rate: float
+    rate_matches: int
+    prior: float
+    prior_source: str
+    availability: str | None
     recent_jornadas: int
-    form: float | None
-    consistency: float
 
 
 @dataclass(frozen=True)
 class PowerResult:
     score: float
     power_ppg: float
-    backward_ppg: float
-    expected_points: float | None
-    expected_points_used: bool
+    quality_ppg: float
+    availability_factor: float
+    calibration: tuple[float, float]
 
 
-def power_inputs(series: Sequence[int]) -> PowerInputs | None:
-    """Recent points, form and consistency from one player's series.
-    `None` when the player has no jornada on the timeline at all."""
-    recent = list(series[-RECENT_WINDOW:])
-    if not recent:
+def power_inputs(
+    series: Sequence[int],
+    season_history: Sequence[int],
+    prior_season_mean: float | None,
+    position: str,
+    availability: str | None,
+) -> PowerInputs | None:
+    """`None` when the player has no jornada on the timeline at all.
+
+    `series` (cross-season, Task 2 rules) only supplies the evidence count;
+    the rate comes from `season_history` — his current-season points per
+    team match — shrunk toward last season exactly as MODEL-02 does it."""
+    if not series:
         return None
-    c = consistency(series)
+    rate = xp.points_rate(season_history, prior_season_mean, position)
     return PowerInputs(
-        recent_avg=statistics.fmean(recent),
-        recent_jornadas=len(recent),
-        form=form(series).value,
-        consistency=c.value or 0.0,
+        position=position,
+        rate=rate.value,
+        rate_matches=rate.matches,
+        prior=rate.prior,
+        prior_source=rate.prior_source,
+        availability=availability,
+        recent_jornadas=len(series[-RECENT_WINDOW:]),
     )
 
 
-def power_score(inputs: PowerInputs, expected_points: float | None = None) -> PowerResult:
-    """`(recent_avg + 0.5·form) · (0.8 + 0.2·consistency/100)`, scaled so
-    10 points per jornada is 100 and clamped to 0–100.
+def power_score(inputs: PowerInputs) -> PowerResult:
+    """Power v2 (audit 2026-09-30): expected points per team match *now*.
 
-    Availability is not a separate input: missed jornadas are already zeros
-    in the series, lowering both recent points and consistency. Charging
-    today's injury status on top would count the same absence twice.
-
-    **The MODEL-02 hook.** `expected_points` (next jornada) blends in at
-    `EXPECTED_POINTS_WEIGHT` once that model exists; `None` leaves the
-    backward-looking formula exactly as it is.
-    """
-    tilt = FORM_WEIGHT * inputs.form if inputs.form is not None else 0.0
-    factor = (1 - CONSISTENCY_WEIGHT) + CONSISTENCY_WEIGHT * inputs.consistency / 100
-    backward = (inputs.recent_avg + tilt) * factor
-    used = expected_points is not None
-    ppg = (
-        (1 - EXPECTED_POINTS_WEIGHT) * backward + EXPECTED_POINTS_WEIGHT * expected_points
-        if used
-        else backward
-    )
+    `quality = a·rate + c` with MODEL-02's rate-only calibration per position
+    — the shrunk, recency-weighted rate is what beat plain averages in the
+    backtest, and the calibration fixes the old score's over-dispersion (its
+    top decile predicted 7.4, scored 5.2). `power_ppg = quality · availability`.
+    The old form tilt and consistency factor are gone: neither added
+    predictive value, and the tilt rewarded a rise from negative to zero.
+    Expected points for the next fixture are *not* blended in; they are their
+    own number (MODEL-02)."""
+    a, c = xp.RATE_ONLY.get(inputs.position, xp.RATE_ONLY["MED"])
+    quality = max(0.0, a * inputs.rate + c)
+    avail = AVAILABILITY_FACTOR.get(inputs.availability or "available", 1.0)
+    ppg = quality * avail
     score = min(max(100 * ppg / POWER_REFERENCE_PPG, 0.0), 100.0)
-    return PowerResult(score, ppg, backward, expected_points, used)
+    return PowerResult(score, ppg, quality, avail, (a, c))
 
 
 # --- ANALYTICS-04 valuation and ANALYTICS-07 Economy Score ------------------------
@@ -285,9 +291,10 @@ def power_score(inputs: PowerInputs, expected_points: float | None = None) -> Po
 class ValuationInput:
     player_id: int
     position: str
-    power_ppg: float
+    quality_ppg: float
     market_value: int
     recent_jornadas: int
+    starter_probability: float | None = None
 
 
 @dataclass(frozen=True)
@@ -310,7 +317,7 @@ class ValuationResult:
 def _eligibility(v: ValuationInput) -> str | None:
     if v.recent_jornadas < MIN_VALUATION_JORNADAS:
         return f"fewer than {MIN_VALUATION_JORNADAS} jornadas in the recent window"
-    if v.power_ppg <= 0:
+    if v.quality_ppg <= 0:
         return "no points in the recent window"
     if v.market_value <= 0:
         return "no market value"
@@ -334,10 +341,10 @@ def _ols(points: Sequence[tuple[float, float]]) -> tuple[float, float, float | N
 
 
 def fit_fair_value(data: Iterable[ValuationInput]) -> dict[str, FairValueFit]:
-    """`ln(market_value) = a + b·power_ppg` per position, over the eligible
+    """`ln(market_value) = a + b·quality_ppg` per position, over the eligible
     players only. A position with too few players borrows the pooled fit."""
     eligible = [v for v in data if _eligibility(v) is None]
-    pts = lambda vs: [(v.power_ppg, math.log(v.market_value)) for v in vs]  # noqa: E731
+    pts = lambda vs: [(v.quality_ppg, math.log(v.market_value)) for v in vs]  # noqa: E731
     pooled = _ols(pts(eligible))
     fits: dict[str, FairValueFit] = {}
     for position in {v.position for v in eligible}:
@@ -364,7 +371,7 @@ def valuations(data: Sequence[ValuationInput]) -> dict[int, ValuationResult]:
         if reason is not None:
             out[v.player_id] = ValuationResult(None, None, fit, reason)
             continue
-        fair = math.exp(fit.intercept + fit.slope * v.power_ppg)
+        fair = math.exp(fit.intercept + fit.slope * v.quality_ppg)
         out[v.player_id] = ValuationResult(round(fair), fair / v.market_value - 1, fit, None)
     return out
 

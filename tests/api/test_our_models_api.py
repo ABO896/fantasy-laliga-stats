@@ -3,8 +3,14 @@ squad payloads."""
 
 from datetime import UTC, date, datetime
 
+from core import expected_points as xp
 from storage.models import Player, PlayerGameweekPoints, PlayerSnapshot, ScrapeRun, SquadMember
 from storage.our_models import refresh_market_predictions
+
+
+def _v2_score(history, position):
+    a, c = xp.RATE_ONLY[position]
+    return round(100 * max(0.0, a * xp.points_rate(history, None, position).value + c) / 10, 1)
 
 
 def _seed(session, n=20):
@@ -36,7 +42,8 @@ def _seed(session, n=20):
 def test_players_carry_power_and_economy(session, client):
     ids = _seed(session)
     rows = {r["playerId"]: r for r in client.get("/api/players").json()["players"]}
-    assert rows[ids[4]]["powerScore"] == 50.0
+    # Steady 5s → shrunk toward the MED prior and calibrated (Power v2).
+    assert rows[ids[4]]["powerScore"] == _v2_score([5] * 10, "MED")
     assert 0 <= rows[ids[4]]["economyScore"] <= 100
 
 
@@ -45,7 +52,7 @@ def test_squad_members_carry_power_and_economy(session, client):
     session.add(SquadMember(player_id=ids[0], purchase_price=1, acquired_on=date(2026, 9, 1)))
     session.commit()
     [member] = client.get("/api/squad").json()["members"]
-    assert member["powerScore"] == 10.0
+    assert member["powerScore"] == _v2_score([1] * 10, "MED")
     assert "economyScore" in member
 
 
@@ -58,6 +65,9 @@ def test_player_analytics_shows_inputs_and_windows(session, client):
     assert body["momentum"][0]["days"] == 1
     assert body["momentum"][1]["pct"] is None
     assert body["power"]["referencePpg"] == 10.0
+    assert body["power"]["rateMatches"] == 10
+    assert body["power"]["calibration"] == {"a": xp.RATE_ONLY["MED"][0],
+                                            "c": xp.RATE_ONLY["MED"][1]}
     assert body["valuation"]["fit"]["n"] == 20
 
 

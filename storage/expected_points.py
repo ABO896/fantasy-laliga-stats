@@ -12,7 +12,8 @@ question is the one after it. A lone postponed fixture left over from an
 old jornada does not make that jornada "next". Without a calendar, the
 jornada after the latest one with stored points, with no fixture context.
 
-**Power Score reads `expected_points_map`** — see its docstring.
+Power Score does **not** read expected points (Power v2, audit 2026-09-30);
+the transfer engine's expected return does, via `expected_points_map`.
 """
 
 import json
@@ -294,12 +295,11 @@ def latest_expected_points(
 
 
 def expected_points_map(session: Session, season: int | None = None) -> dict[int, float]:
-    """`{player_id: xP}` for the latest stored jornada — **the function Power
-    Score (ANALYTICS-06) blends in** via
-    `compute_player_analytics(session, expected_points=...)`.
+    """`{player_id: xP}` for the latest stored jornada — what the transfer
+    engine blends into expected return (`storage.transfers`).
 
-    `no_fixture` rows are left out: a blank jornada says nothing about how
-    good a player is, and Power is a quality score, not a fixture planner.
+    `no_fixture` rows are left out: a blank jornada carries no fixture to
+    project, so it says nothing the backward-looking return does not.
     """
     return {
         pid: value

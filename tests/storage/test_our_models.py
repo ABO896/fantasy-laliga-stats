@@ -4,10 +4,12 @@
 import json
 from datetime import UTC, date, datetime, timedelta
 
+import pytest
 import sqlalchemy as sa
 from sqlmodel import select
 
-from core.analytics import GameweekRow
+from core import expected_points as xp
+from core.analytics import AVAILABILITY_FACTOR, GameweekRow
 from storage.models import (
     MarketPrediction,
     Player,
@@ -165,6 +167,11 @@ def test_track_record_and_source_comparison(session):
     assert len(listing["predictions"]) == 2
 
 
+def _v2_score(history, position, prior=None):
+    a, c = xp.RATE_ONLY[position]
+    return round(100 * max(0.0, a * xp.points_rate(history, prior, position).value + c) / 10, 1)
+
+
 def test_analytics_scores_and_payload(session):
     run = _run(session)
     players = [_player(session, f"p{i}", position="MED") for i in range(20)]
@@ -178,30 +185,46 @@ def test_analytics_scores_and_payload(session):
     result = compute_player_analytics(session)
     assert len(result) == 20
     scores = score_fields(result[players[6].id])
-    assert scores["powerScore"] == 60.0  # steady 6s → 6 ppg
+    assert scores["powerScore"] == _v2_score([6] * 12, "MED")  # shrunk, calibrated 6s
+    assert scores["powerScore"] < 60.0
     assert scores["economyScore"] is not None
-    assert score_fields(result[players[0].id])["economyScore"] is None  # scores 0s: no valuation
 
     payload = player_analytics_payload(session, players[6].id, [1, 7])
     assert payload["form"]["window"] == 5
     assert payload["consistency"]["points"] == [6] * 10
-    assert payload["power"]["recentJornadas"] == 10
-    assert payload["valuation"]["fit"]["n"] == 17
+    power = payload["power"]
+    assert power["recentJornadas"] == 10
+    assert power["rateMatches"] == 12
+    assert power["priorSource"] == "position"
+    assert power["availabilityFactor"] == 1.0
+    assert power["powerPpg"] == power["qualityPpg"]
+    assert {"formWeight", "consistencyWeight", "expectedPointsUsed"}.isdisjoint(power)
+    # Zero-scorers keep a small shrunk quality, so every player is valued.
+    assert payload["valuation"]["fit"]["n"] == 20
     assert [m["windowDays"] for m in payload["momentum"]] == [1, 7]
 
 
-def test_expected_points_hook_changes_power(session):
+def test_power_uses_last_season_prior_and_charges_availability(session):
     run = _run(session)
-    p = _player(session, "a")
-    _snap(session, run, p.id, D1, 5_000_000, 0.0)
-    for week in range(1, 6):
-        session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=p.id,
-                                         points=4, scrape_run_id=run.id))
+    fit, hurt = _player(session, "fit"), _player(session, "hurt")
+    for pl, status in [(fit, "available"), (hurt, "injured")]:
+        _snap(session, run, pl.id, D1, 5_000_000, 0.0, availability=status)
+        for week in range(1, 4):
+            session.add(PlayerGameweekPoints(season_year=2025, week=week, player_id=pl.id,
+                                             points=10, scrape_run_id=run.id))
+        for week in range(1, 6):
+            session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=pl.id,
+                                             points=4, scrape_run_id=run.id))
     session.commit()
-    base = compute_player_analytics(session)[p.id].power
-    hooked = compute_player_analytics(session, expected_points={p.id: 8.0})[p.id].power
-    assert base.power_ppg == 4.0
-    assert hooked.expected_points_used and hooked.power_ppg == 6.0
+    result = compute_player_analytics(session)
+    a_fit, a_hurt = result[fit.id], result[hurt.id]
+    assert a_fit.power_inputs.prior_source == "last_season"
+    assert a_fit.power_inputs.rate_matches == 5  # current season only
+    assert a_fit.power.quality_ppg == pytest.approx(
+        _v2_score([4] * 5, "DEL", prior=10.0) / 10, abs=0.01)
+    assert a_hurt.power.quality_ppg == a_fit.power.quality_ppg
+    assert a_hurt.power.power_ppg == pytest.approx(
+        a_fit.power.power_ppg * AVAILABILITY_FACTOR["injured"])
 
 
 # --- team_played_weeks / calendar_final_weeks ------------------------------------
