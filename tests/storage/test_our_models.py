@@ -9,7 +9,6 @@ from sqlmodel import select
 
 from core.analytics import GameweekRow
 from storage.models import (
-    Fixture,
     MarketPrediction,
     Player,
     PlayerGameweekPoints,
@@ -28,6 +27,7 @@ from storage.our_models import (
     team_played_weeks,
     track_record_payload,
 )
+from tests.storage.helpers import seed_fixture as _fixture
 
 
 def _player(session, slug, position="DEL"):
@@ -212,13 +212,6 @@ def test_team_played_weeks_needs_min_team_rows():
     rows += [GameweekRow(2026, 2, 1, 2, False)]                          # 1 row, team A
     team_of = {pid: "A" for pid in range(1, 7)}
     assert team_played_weeks(rows, team_of) == {"A": {(2026, 1)}}
-
-
-def _fixture(session, fid, matchday, kickoff, final):
-    session.add(Fixture(fixture_id=fid, matchday=matchday, kickoff_utc=kickoff,
-                        kickoff_confirmed=True, is_final=final, home_team="Sevilla FC",
-                        away_team="Getafe", scraped_at=datetime.now(UTC)))
-    session.commit()
 
 
 def test_calendar_final_weeks(session):

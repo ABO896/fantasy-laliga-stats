@@ -3,7 +3,6 @@ from pathlib import Path
 
 from scraper.sources.af_season_stats import parse_season_stats
 from storage.models import (
-    Fixture,
     Player,
     PlayerGameweekPoints,
     PlayerSeasonStats,
@@ -24,6 +23,7 @@ from storage.repository import (
     upsert_season_stats,
     weeks_to_refetch,
 )
+from tests.storage.helpers import seed_fixture as _fixture
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "phase7"
 
@@ -553,13 +553,6 @@ def _seed_week(session, week, provisional, started_at):
     session.refresh(run)
     session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=1, points=3,
                                      is_provisional=provisional, scrape_run_id=run.id))
-    session.commit()
-
-
-def _fixture(session, fid, matchday, kickoff, final):
-    session.add(Fixture(fixture_id=fid, matchday=matchday, kickoff_utc=kickoff,
-                        kickoff_confirmed=True, is_final=final, home_team="Sevilla FC",
-                        away_team="Getafe", scraped_at=datetime.now(UTC)))
     session.commit()
 
 
