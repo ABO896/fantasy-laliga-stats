@@ -405,7 +405,10 @@ def score_expected_points(session: Session) -> list[ScoredPrediction]:
     still in progress. `unscorable`: the week is final but his team has no
     rows — a blank or a data gap, never averaged over as a zero.
     """
-    preds = session.exec(select(ExpectedPointsPrediction)).all()
+    preds = session.exec(
+        select(ExpectedPointsPrediction)
+        .where(ExpectedPointsPrediction.model_version == xp.MODEL_VERSION)
+    ).all()
     if not preds:
         return []
     teams = {p.id: p.team for p in session.exec(select(Player)).all()}

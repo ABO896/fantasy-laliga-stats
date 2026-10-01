@@ -224,6 +224,33 @@ def test_scoring_against_actual_points(session):
     assert {b["basis"] for b in record["byBasis"]} == {"form+starter+odds"}
 
 
+def test_scoring_ignores_stale_model_versions(session):
+    """A prediction left over from a retired model version must not be
+    scored or counted alongside the current `xp.MODEL_VERSION` row for the
+    same player/jornada — the track record would otherwise mix versions."""
+    run, star, *_ = _world(session)
+    refresh_expected_points(session, NOW)
+    current = _stored(session)[star.id]
+    stale = ExpectedPointsPrediction(
+        season_year=current.season_year, jornada=current.jornada, player_id=star.id,
+        model_version="xp-1", predicted=999.0, basis=current.basis, inputs=current.inputs,
+        created_at=NOW, updated_at=NOW,
+    )
+    session.add(stale)
+    session.commit()
+
+    _points(session, run, star.id, 8, 14)
+    _team_week(session, run, "Home FC", 8)
+
+    scored = [s for s in score_expected_points(session) if s.row.player_id == star.id]
+    assert len(scored) == 1
+    assert scored[0].row.model_version == xp.MODEL_VERSION
+    assert scored[0].actual == 14
+
+    record = track_record_payload(session)
+    assert record["overall"]["n"] == 1  # the xp-1 row (predicted 999) must not be counted
+
+
 def test_the_in_progress_jornada_is_pending(session):
     run, star, *_ = _world(session)
     refresh_expected_points(session, NOW)
