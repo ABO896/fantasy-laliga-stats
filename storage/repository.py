@@ -23,6 +23,7 @@ from sqlmodel import Session, delete, distinct, func, select
 from core.config import Settings
 from core.season_stats_schema import SEASON_RECORD_FIELDS, column_name
 from core.squad_rules import SquadMember as EngineMember
+from core.xp_backtest import MIN_TEAM_ROWS
 from storage.db import as_utc
 from storage.models import (
     DatasetRun,
@@ -1340,19 +1341,27 @@ def get_team_week_points(session: Session, season_year: int) -> dict[str, list[f
     """Each team's total fantasy points per *final* jornada of a season, in
     week order — the input to `core.fixture_difficulty.team_strength`.
 
-    Grouped on `Player.team`, i.e. each player's *current* club: a player
-    transferred mid-season carries his earlier points to his new team. The
-    active (provisional) jornada is excluded because its points still move.
+    Grouped on `Player.team`, i.e. each player's *current* club. The active
+    jornada is excluded because its points still move — the season's highest
+    week, when flagged. The flag alone is not trusted: ingest used to leave
+    it set on finished weeks (2026/27 week 2), which silently dropped them.
+    A club-week with fewer than `MIN_TEAM_ROWS` rows is a club that didn't
+    play (or wasn't captured) and is left out rather than read as a low total.
     """
     rows = session.exec(
-        select(Player.team, PlayerGameweekPoints.week, func.sum(PlayerGameweekPoints.points))
+        select(Player.team, PlayerGameweekPoints.week,
+               func.sum(PlayerGameweekPoints.points), func.count(),
+               func.max(PlayerGameweekPoints.is_provisional))
         .join(Player, Player.id == PlayerGameweekPoints.player_id)
         .where(PlayerGameweekPoints.season_year == season_year)
-        .where(PlayerGameweekPoints.is_provisional == False)  # noqa: E712
         .group_by(Player.team, PlayerGameweekPoints.week)
         .order_by(Player.team, PlayerGameweekPoints.week)
     ).all()
+    top = max((week for _t, week, *_ in rows), default=None)
+    active = top if any(week == top and flag for _t, week, _s, _n, flag in rows) else None
     out: dict[str, list[float]] = {}
-    for team, _week, total in rows:
+    for team, week, total, n, _flag in rows:
+        if week == active or n < MIN_TEAM_ROWS:
+            continue
         out.setdefault(team, []).append(float(total))
     return out
