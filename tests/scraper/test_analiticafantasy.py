@@ -56,6 +56,18 @@ def test_parse_player_row_external_id_is_the_url_slug():
     assert cucurella["position"] == "DEF"
 
 
+def test_parse_page_keeps_starter_market_updates_fixture_and_source():
+    # F15: the parser used to discard isStarter, mercadosProximoPartido,
+    # nextFixture.fixtureId, and the whole source object — only a parsed
+    # subset survived into raw_fields. This fixture predates those keys in
+    # the embedded JSON, so only assert the record keys exist; the values
+    # may legitimately be None against this older capture.
+    records = parse_page(_load_fixture_html())
+    r = records[0]
+    assert set(r) >= {"is_starter", "market_updates_to_next_match", "next_fixture_id", "source"}
+    assert r["source"]["slug"] == r["external_id"]
+
+
 def _restamp_flight_chunk_id(html: str, new_id: str) -> str:
     """Re-stamp the Next.js flight chunk id prefixing the pushed payload
     that carries `initialPlayers`.

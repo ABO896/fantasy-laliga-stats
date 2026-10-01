@@ -52,6 +52,9 @@ def to_snapshot(
         starter_probability=record.get("starter_probability"),
         availability_status=record["availability_status"],
         next_opponent=record.get("next_opponent"),
+        is_starter=record.get("is_starter"),
+        market_updates_to_next_match=record.get("market_updates_to_next_match"),
+        next_fixture_id=record.get("next_fixture_id"),
         raw_fields=json.dumps(record, ensure_ascii=False),
         scrape_run_id=scrape_run_id,
     )

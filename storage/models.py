@@ -45,6 +45,9 @@ class PlayerSnapshot(SQLModel, table=True):
     starter_probability: float | None = None
     availability_status: str  # available | injured | doubtful | suspended
     next_opponent: str | None = None
+    is_starter: bool | None = None
+    market_updates_to_next_match: int | None = None  # the source's mercadosProximoPartido
+    next_fixture_id: int | None = None
     raw_fields: str  # JSON of every cell the parser produced, verbatim
     scrape_run_id: int = Field(foreign_key="scraperun.id")
 

@@ -210,6 +210,12 @@ def parse_page(html: str) -> list[dict]:
                 "next_opponent": next_fixture.get("rivalName"),
                 "starter_probability": float(chance) if chance is not None else None,
                 "availability_status": availability_status,
+                "is_starter": p.get("isStarter"),
+                "market_updates_to_next_match": p.get("mercadosProximoPartido"),
+                "next_fixture_id": next_fixture.get("fixtureId"),
+                # The whole source object: raw_fields used to keep only the
+                # parsed subset, so fields like averagePoints were lost.
+                "source": p,
             }
         )
 
