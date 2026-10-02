@@ -62,6 +62,9 @@ class ScrapeRun(SQLModel, table=True):
     row_count: int = 0
     validation_errors: str | None = None  # JSON-encoded list
     raw_snapshot_dir: str | None = None
+    mode: str = Field(
+        default="quick", sa_column_kwargs={"server_default": "quick"}
+    )  # quick | mine | complete
 
 
 class RawScrape(SQLModel, table=True):
@@ -433,3 +436,38 @@ class ExpectedPointsPrediction(SQLModel, table=True):
     locks_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+class PlayerMarketDaily(SQLModel, table=True):
+    """The source's own day-by-day market value (player page). `PlayerSnapshot`
+    stays 'what our refresh saw'; this is the gap-free series models read."""
+
+    season_year: int = Field(primary_key=True)
+    day: date = Field(primary_key=True)
+    player_id: int = Field(foreign_key="player.id", primary_key=True)
+    market_value: int
+    delta: int | None = None
+    scrape_run_id: int = Field(foreign_key="scraperun.id")
+
+
+class PlayerMatchStats(SQLModel, table=True):
+    """One player's line for one jornada, from his page. `appearance` is
+    inferred from minutes (`core.player_pages.appearance`)."""
+
+    season_year: int = Field(primary_key=True)
+    week: int = Field(primary_key=True)
+    player_id: int = Field(foreign_key="player.id", primary_key=True)
+    minutes: int
+    points: int
+    appearance: str  # start | sub | dnp
+    components: str  # JSON of the source's stats dict, verbatim
+    scrape_run_id: int = Field(foreign_key="scraperun.id")
+
+
+class PlayerPageFetch(SQLModel, table=True):
+    """Last attempt per player — drives resume order and the weekly sweep."""
+
+    player_id: int = Field(foreign_key="player.id", primary_key=True)
+    fetched_at: datetime
+    status: str  # ok | gap
+    error: str | None = None
