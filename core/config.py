@@ -26,6 +26,29 @@ class Settings(BaseSettings):
     #: GET carries the whole payload — no browser. Restored 2026-09-27 for
     #: TRANSFER-03's fixture difficulty.
     calendar_target_url: str = "https://www.analiticafantasy.com/la-liga/calendario-predictor"
+    #: One player's whole season (daily market values + per-jornada match
+    #: rows). `{slug}` is `Player.external_id`.
+    player_page_url_template: str = (
+        "https://www.analiticafantasy.com/jugadores/{slug}/fantasy/la-liga-fantasy"
+    )
+    #: Hard ceiling on player-page requests in one refresh — see
+    #: `backfill_request_budget` for the analogous jornada-side cap.
+    player_pages_max_requests: int = 700
+    #: This source's own pacing for player pages, independent of the
+    #: market/jornada scrapers' delay — see `fetch_page`'s own docstring on
+    #: why a per-source pace, not a shared one.
+    player_pages_min_delay_seconds: float = 1.0
+    player_pages_max_delay_seconds: float = 2.0
+    #: Re-fetch a player who looks fully up to date after this many days
+    #: anyway — a periodic sweep catches a gap `needs_fetch`'s other
+    #: conditions miss (e.g. a corrected historical row).
+    player_pages_sweep_days: int = 7
+    #: The hour (Europe/Madrid) the source's daily market update has
+    #: typically landed by, used to compute `expected_last_day`.
+    market_update_hour: int = 8
+    #: How long a just-created player can go without a page fetch before a
+    #: complete refresh treats his missing page as stale rather than new.
+    complete_refresh_stale_days: int = 3
     #: Below this many fixtures the calendar parse is rejected. The window
     #: normally holds 50 (five jornadas of ten).
     min_fixture_count: int = 30
