@@ -132,7 +132,8 @@ def test_fixture_difficulty_is_weighted_and_its_opponent_visible(world, session,
     now = datetime.now(UTC)
 
     def rec(fid, md, home, away, days):
-        return FixtureRecord(fixture_id=fid, matchday=md, kickoff_utc=now + timedelta(days=days),
+        return FixtureRecord(fixture_id=fid, matchday=md, season_year=SEASON,
+                             kickoff_utc=now + timedelta(days=days),
                              kickoff_confirmed=True, is_final=False, home_team=home,
                              away_team=away, home_team_id=None, away_team_id=None,
                              home_difficulty=None, away_difficulty=None)

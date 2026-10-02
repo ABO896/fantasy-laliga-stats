@@ -98,7 +98,7 @@ def calendar_final_weeks(session: Session, season: int, now: datetime) -> set[tu
     `MIN_FINAL_FIXTURES` final, and every fixture that has kicked off final
     (a postponed match still in the future does not hold the week open)."""
     by_day: dict[int, list[Fixture]] = defaultdict(list)
-    for f in session.exec(select(Fixture)).all():
+    for f in session.exec(select(Fixture).where(Fixture.season_year == season)).all():
         by_day[f.matchday].append(f)
     out = set()
     for day, fixtures in by_day.items():

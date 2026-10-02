@@ -13,6 +13,7 @@ def _fixture(fixture_id: int, matchday: int = 8, **overrides) -> FixtureRecord:
     defaults = dict(
         fixture_id=fixture_id,
         matchday=matchday,
+        season_year=2026,
         kickoff_utc=datetime(2026, 10, 9, 19, 0, tzinfo=UTC),
         kickoff_confirmed=True,
         is_final=False,

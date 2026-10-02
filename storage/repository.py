@@ -765,7 +765,11 @@ def weeks_to_refetch(session: Session, season_year: int) -> set[int]:
     }
     late = {
         f.matchday
-        for f in session.exec(select(Fixture).where(Fixture.is_final == True)).all()  # noqa: E712
+        for f in session.exec(
+            select(Fixture)
+            .where(Fixture.season_year == season_year)
+            .where(Fixture.is_final == True)  # noqa: E712
+        ).all()
         if f.matchday in captured and as_utc(f.kickoff_utc) > captured[f.matchday]
     }
     return provisional | late
@@ -1313,6 +1317,7 @@ def upsert_fixtures(session: Session, records) -> int:
         if row is None:
             row = Fixture(fixture_id=record.fixture_id, scraped_at=now)
         row.matchday = record.matchday
+        row.season_year = record.season_year
         row.kickoff_utc = record.kickoff_utc
         row.kickoff_confirmed = record.kickoff_confirmed
         row.is_final = record.is_final
@@ -1328,10 +1333,16 @@ def upsert_fixtures(session: Session, records) -> int:
     return len(records)
 
 
-def get_fixtures(session: Session) -> list[Fixture]:
+def get_fixtures(session: Session, season_year: int | None = None) -> list[Fixture]:
     """Every stored fixture, kickoffs normalised back to UTC-aware so no
-    caller can compare a naive instant against `datetime.now(UTC)`."""
-    rows = session.exec(select(Fixture).order_by(Fixture.kickoff_utc, Fixture.fixture_id)).all()
+    caller can compare a naive instant against `datetime.now(UTC)`.
+    `season_year=None` (the default) returns every season, as before;
+    `matchday` repeats every season, so a caller that cares which one
+    passes it."""
+    query = select(Fixture).order_by(Fixture.kickoff_utc, Fixture.fixture_id)
+    if season_year is not None:
+        query = query.where(Fixture.season_year == season_year)
+    rows = session.exec(query).all()
     for row in rows:
         row.kickoff_utc = as_utc(row.kickoff_utc)
     return list(rows)

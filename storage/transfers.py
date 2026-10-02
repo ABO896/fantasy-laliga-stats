@@ -100,7 +100,7 @@ def _fixture_outlooks(session: Session, season: int, n: int, now: datetime):
     jornadas. A team the calendar knows but with nothing in the window gets
     an empty list (a genuine blank); a team the calendar has never named is
     left out, so its players read as "no fixture data", not as a blank."""
-    rows = get_fixtures(session)
+    rows = get_fixtures(session, season)
     views = [
         FixtureView(r.fixture_id, r.matchday, r.kickoff_utc, r.kickoff_confirmed, r.is_final,
                     r.home_team, r.away_team)

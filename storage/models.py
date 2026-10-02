@@ -293,10 +293,14 @@ class Fixture(SQLModel, table=True):
 
     `*_difficulty` is the **source's** per-side label, stored as a reference
     field only — this project computes its own difficulty.
+
+    `season_year` — the season the kickoff falls in (`core.seasons.season_of`);
+    `matchday` repeats every season, so every reader filters on both.
     """
 
     fixture_id: int = Field(primary_key=True)  # the source's own id
     matchday: int = Field(index=True)
+    season_year: int = Field(index=True)
     kickoff_utc: datetime
     kickoff_confirmed: bool  # derived per jornada at parse time
     is_final: bool = False

@@ -8,7 +8,9 @@ from datetime import UTC, datetime
 from storage.models import Fixture
 
 
-def seed_fixture(session, fid: int, matchday: int, kickoff: datetime, final: bool) -> None:
+def seed_fixture(
+    session, fid: int, matchday: int, kickoff: datetime, final: bool, season_year: int = 2026
+) -> None:
     """One `Fixture` row, home Sevilla FC vs away Getafe — the two clubs
     `tests/storage/test_ingestion_repository.py` and
     `tests/storage/test_our_models.py` seed their players under."""
@@ -16,7 +18,7 @@ def seed_fixture(session, fid: int, matchday: int, kickoff: datetime, final: boo
         Fixture(
             fixture_id=fid, matchday=matchday, kickoff_utc=kickoff, kickoff_confirmed=True,
             is_final=final, home_team="Sevilla FC", away_team="Getafe",
-            scraped_at=datetime.now(UTC),
+            scraped_at=datetime.now(UTC), season_year=season_year,
         )
     )
     session.commit()

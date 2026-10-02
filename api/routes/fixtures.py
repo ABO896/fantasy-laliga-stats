@@ -38,15 +38,15 @@ def _view(row: Fixture) -> FixtureView:
     )
 
 
-def _upcoming(session) -> tuple[list[FixtureView], dict[int, Fixture]]:
-    rows = get_fixtures(session)
+def _upcoming(session, season: int) -> tuple[list[FixtureView], dict[int, Fixture]]:
+    rows = get_fixtures(session, season)
     by_id = {row.fixture_id: row for row in rows}
     return upcoming_fixtures([_view(r) for r in rows], datetime.now(UTC)), by_id
 
 
 @router.get("/fixtures")
-def list_fixtures(session: SessionDep):
-    upcoming, by_id = _upcoming(session)
+def list_fixtures(session: SessionDep, settings: SettingsDep):
+    upcoming, by_id = _upcoming(session, settings.current_season_year)
     return {
         "serverTime": datetime.now(UTC).isoformat(),
         "fixtures": [
@@ -76,8 +76,8 @@ def difficulty(
     settings: SettingsDep,
     n: int = Query(3, ge=1, le=MAX_WINDOW),
 ):
-    upcoming, _ = _upcoming(session)
     season = settings.current_season_year
+    upcoming, _ = _upcoming(session, season)
     current = get_team_week_points(session, season)
     previous = get_team_week_points(session, season - 1)
     teams_in_play = {f.home_team for f in upcoming} | {f.away_team for f in upcoming}

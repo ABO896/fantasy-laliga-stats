@@ -577,3 +577,13 @@ def test_a_postponed_fixture_not_yet_final_does_not_trigger_a_refetch(session):
     _seed_week(session, 6, False, captured)
     _fixture(session, 2, 6, captured + timedelta(days=20), False)
     assert weeks_to_refetch(session, 2026) == set()
+
+
+def test_a_late_final_fixture_from_another_season_does_not_trigger_a_refetch(session):
+    """A 2025 matchday-6 fixture, final, that kicked off after the 2026
+    week-6 capture must not be read as a late final for 2026 — `matchday`
+    repeats every season, so the check must also match on `season_year`."""
+    captured = datetime(2026, 10, 1, 9, tzinfo=UTC)
+    _seed_week(session, 6, False, captured)
+    _fixture(session, 2, 6, captured + timedelta(days=20), True, season_year=2025)
+    assert weeks_to_refetch(session, 2026) == set()

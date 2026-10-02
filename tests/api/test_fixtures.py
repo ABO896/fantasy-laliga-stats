@@ -20,6 +20,7 @@ def _rec(fixture_id, matchday, home, away, days, is_final=False) -> FixtureRecor
     return FixtureRecord(
         fixture_id=fixture_id,
         matchday=matchday,
+        season_year=SEASON,
         kickoff_utc=datetime.now(UTC) + timedelta(days=days),
         kickoff_confirmed=True,
         is_final=is_final,

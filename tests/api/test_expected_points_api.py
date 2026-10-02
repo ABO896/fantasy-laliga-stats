@@ -37,10 +37,12 @@ def _seed(engine):
             for week in range(1, 6):
                 s.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=p.id,
                                            points=8, scrape_run_id=run.id))
-        s.add(Fixture(fixture_id=1, matchday=7, kickoff_utc=NOW + timedelta(days=3),
+        s.add(Fixture(fixture_id=1, matchday=7, season_year=2026,
+                      kickoff_utc=NOW + timedelta(days=3),
                       kickoff_confirmed=True, home_team="Home FC", away_team="Other FC",
                       scraped_at=NOW))
-        s.add(Fixture(fixture_id=2, matchday=6, kickoff_utc=NOW - timedelta(days=3),
+        s.add(Fixture(fixture_id=2, matchday=6, season_year=2026,
+                      kickoff_utc=NOW - timedelta(days=3),
                       kickoff_confirmed=True, is_final=True, home_team="Idle FC",
                       away_team="Home FC", scraped_at=NOW))
         s.commit()
