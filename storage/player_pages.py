@@ -7,6 +7,7 @@ rules — this module reuses them.
 """
 
 import json
+from collections import defaultdict
 from datetime import date, datetime
 
 from sqlmodel import Session, func, select
@@ -43,7 +44,14 @@ def build_candidates(
     session: Session, season: int, now: datetime, player_ids: list[int] | None
 ) -> list[Candidate]:
     """One `Candidate` per requested player (or every player in the latest
-    market snapshot when `player_ids` is `None`)."""
+    market snapshot when `player_ids` is `None`).
+
+    Three queries cover every candidate's per-player data regardless of how
+    many players there are — a grouped max-day query, one query for every
+    `(player_id, week)` row this season grouped into a dict in Python, and
+    one fetch-log query — rather than two queries plus a `session.get` *per
+    player*. The per-player loop before this fix made `/api/health` issue
+    roughly 1,700 queries on every poll (~550 players × 3)."""
     ids = player_ids if player_ids is not None else _default_player_ids(session)
     if not ids:
         return []
@@ -54,24 +62,34 @@ def build_candidates(
     season_weeks = {w for s, w in timeline if s == season}
     played = team_played_weeks(gw_rows, team_of)
 
+    last_day_by_player = dict(
+        session.exec(
+            select(PlayerMarketDaily.player_id, func.max(PlayerMarketDaily.day))
+            .where(PlayerMarketDaily.season_year == season)
+            .group_by(PlayerMarketDaily.player_id)
+        ).all()
+    )
+
+    have_weeks_by_player: dict[int, set[int]] = defaultdict(set)
+    for pid, week in session.exec(
+        select(PlayerMatchStats.player_id, PlayerMatchStats.week).where(
+            PlayerMatchStats.season_year == season
+        )
+    ).all():
+        have_weeks_by_player[pid].add(week)
+
+    fetch_rows = session.exec(
+        select(PlayerPageFetch).where(PlayerPageFetch.player_id.in_(ids))
+    ).all()
+    fetched_at_by_player = {f.player_id: as_utc(f.fetched_at) for f in fetch_rows}
+
     candidates = []
     for pid in ids:
-        last_day = session.exec(
-            select(func.max(PlayerMarketDaily.day))
-            .where(PlayerMarketDaily.season_year == season)
-            .where(PlayerMarketDaily.player_id == pid)
-        ).one()
+        last_day = last_day_by_player.get(pid)
         club_weeks = {w for s, w in played.get(team_of.get(pid), set()) if s == season}
-        have_weeks = set(
-            session.exec(
-                select(PlayerMatchStats.week)
-                .where(PlayerMatchStats.season_year == season)
-                .where(PlayerMatchStats.player_id == pid)
-            ).all()
-        )
+        have_weeks = have_weeks_by_player.get(pid, set())
         missing_weeks = frozenset((season_weeks & club_weeks) - have_weeks)
-        fetch = session.get(PlayerPageFetch, pid)
-        last_fetched_at = as_utc(fetch.fetched_at) if fetch is not None else None
+        last_fetched_at = fetched_at_by_player.get(pid)
         candidates.append(Candidate(pid, last_day, missing_weeks, last_fetched_at))
     return candidates
 

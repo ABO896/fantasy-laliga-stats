@@ -125,6 +125,35 @@ def test_match_rows_record_appearance(session):
     assert matches_written == 3
 
 
+def test_build_candidates_issues_a_bounded_number_of_queries(session, engine):
+    """Regression for the N+1: before the fix, this issued ~2 queries per
+    player plus a `session.get` each — ~90 statements for 30 players, and
+    ~1,700 for `/api/health`'s real player count. The fixed version's query
+    count must not grow with player count; the bound here is loose on
+    purpose (it only needs to prove "flat", not pin an exact number)."""
+    run = make_run(session)
+    for pid in range(1, 31):
+        make_player(session, pid, team="Sevilla FC")
+        _daily(session, run, pid, date(2026, 9, 5))
+    session.commit()
+
+    statements: list[str] = []
+
+    def _record(conn, cursor, statement, parameters, context, executemany):
+        statements.append(statement)
+
+    sa.event.listen(engine, "before_cursor_execute", _record)
+    try:
+        candidates = build_candidates(
+            session, SEASON, datetime(2026, 9, 10, tzinfo=UTC), list(range(1, 31))
+        )
+    finally:
+        sa.event.remove(engine, "before_cursor_execute", _record)
+
+    assert len(candidates) == 30
+    assert len(statements) < 15
+
+
 def test_candidates_flag_a_missing_finished_week(session):
     run = make_run(session)
     for pid in range(1, 6):
