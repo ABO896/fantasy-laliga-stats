@@ -26,11 +26,15 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
       status: "success",
       rowCount: 342,
       validationErrors: [],
+      mode: "quick",
     },
+    lastCompleteRun: null,
     isStale: false,
     hoursSinceLastSuccess: 5,
     marketUpdatedAt: "2026-08-22T00:15:00+02:00",
     recentRuns: [],
+    playerPages: { players: 556, complete: 540, withGaps: 16, oldestLastDay: null },
+    suggestComplete: false,
     ...overrides,
   };
 }
@@ -105,5 +109,25 @@ describe("StaleBanner", () => {
 
     await screen.findByText("The market has moved since this data — refresh now?");
     expect(screen.getByText("Player table content")).toBeInTheDocument();
+  });
+
+  it("adds a complete-refresh recommendation when suggestComplete is true", async () => {
+    vi.mocked(fetchHealth).mockResolvedValue(buildHealth({ isStale: true, suggestComplete: true }));
+    renderWithClient(<StaleBanner />);
+
+    await screen.findByText("The market has moved since this data — refresh now?");
+    expect(
+      screen.getByText("A complete refresh is recommended — some players' history is behind."),
+    ).toBeInTheDocument();
+  });
+
+  it("omits the complete-refresh recommendation when suggestComplete is false", async () => {
+    vi.mocked(fetchHealth).mockResolvedValue(buildHealth({ isStale: true, suggestComplete: false }));
+    renderWithClient(<StaleBanner />);
+
+    await screen.findByText("The market has moved since this data — refresh now?");
+    expect(
+      screen.queryByText("A complete refresh is recommended — some players' history is behind."),
+    ).not.toBeInTheDocument();
   });
 });

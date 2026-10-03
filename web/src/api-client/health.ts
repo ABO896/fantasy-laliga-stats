@@ -2,6 +2,8 @@ import { apiFetch } from "./client";
 
 const API_BASE_URL = "http://127.0.0.1:8000/api";
 
+export type ScrapeMode = "quick" | "mine" | "complete";
+
 export interface ScrapeRunDto {
   id: number;
   startedAt: string;
@@ -9,10 +11,26 @@ export interface ScrapeRunDto {
   status: "running" | "success" | "rejected" | "failed";
   rowCount: number;
   validationErrors: string[];
+  mode: ScrapeMode;
+}
+
+/** Coverage of the `player_pages` dataset (Task 5/T-05): how many tracked
+ * players have a complete page, how many have gaps, and the oldest
+ * `lastDay` among them — ISO-8601 date, or `null` with zero tracked
+ * players. */
+export interface PlayerPagesCoverage {
+  players: number;
+  complete: number;
+  withGaps: number;
+  oldestLastDay: string | null;
 }
 
 export interface HealthResponse {
   lastSuccessfulRun: ScrapeRunDto | null;
+  /** The last run that completed in `complete` mode — `null` when none
+   * ever has. Distinct from `lastSuccessfulRun`, which can be a `quick`
+   * or `mine` run. */
+  lastCompleteRun: ScrapeRunDto | null;
   isStale: boolean;
   hoursSinceLastSuccess: number | null;
   /** The market update the server judged staleness against — ISO-8601, in
@@ -20,6 +38,11 @@ export interface HealthResponse {
    * timezone can never disagree with the verdict beside it. */
   marketUpdatedAt: string;
   recentRuns: ScrapeRunDto[];
+  playerPages: PlayerPagesCoverage;
+  /** Server-computed judgement call: a `complete` refresh is worth
+   * running — the last one is stale, missing entirely, or the current
+   * coverage snapshot already shows gaps. */
+  suggestComplete: boolean;
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
@@ -33,9 +56,11 @@ export function fetchHealth(): Promise<HealthResponse> {
 export class ScrapeAlreadyRunningError extends Error {}
 
 /** Not routed through `apiFetch` — the 409 single-flight response needs
- * its own handling distinct from a generic failed request. */
-export async function triggerScrape(): Promise<{ scrapeRunId: number }> {
-  const response = await fetch(`${API_BASE_URL}/scrape/trigger`, { method: "POST" });
+ * its own handling distinct from a generic failed request. `mode`
+ * defaults to `quick`, matching today's refresh exactly — no player-page
+ * request, no new dataset run row. */
+export async function triggerScrape(mode: ScrapeMode = "quick"): Promise<{ scrapeRunId: number }> {
+  const response = await fetch(`${API_BASE_URL}/scrape/trigger?mode=${mode}`, { method: "POST" });
 
   if (response.status === 409) {
     const body = (await response.json().catch(() => ({}))) as { detail?: string };

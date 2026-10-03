@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchHealth, ScrapeAlreadyRunningError, triggerScrape } from "../api-client/health";
+import { fetchHealth } from "../api-client/health";
+import RefreshControls from "./RefreshControls";
 
 /** Madrid, because the market update is a wall-clock event there and the
  * owner's own day runs on it. */
@@ -22,8 +23,6 @@ const MADRID_TIME = new Intl.DateTimeFormat("en-GB", {
 export default function StaleBanner() {
   const queryClient = useQueryClient();
   const [dismissed, setDismissed] = useState(false);
-  const [isTriggering, setIsTriggering] = useState(false);
-  const [triggerError, setTriggerError] = useState<string | null>(null);
 
   const { data } = useQuery({
     queryKey: ["health"],
@@ -31,21 +30,8 @@ export default function StaleBanner() {
     staleTime: 60_000,
   });
 
-  async function handleRefreshNow() {
-    setTriggerError(null);
-    setIsTriggering(true);
-    try {
-      await triggerScrape();
-      await queryClient.invalidateQueries({ queryKey: ["health"] });
-    } catch (error) {
-      setTriggerError(
-        error instanceof ScrapeAlreadyRunningError
-          ? "A scrape is already in progress."
-          : "Couldn't start the refresh. Try again.",
-      );
-    } finally {
-      setIsTriggering(false);
-    }
+  async function handleTriggered() {
+    await queryClient.invalidateQueries({ queryKey: ["health"] });
   }
 
   if (!data || !data.isStale || dismissed) {
@@ -72,17 +58,14 @@ export default function StaleBanner() {
               : `Last scraped ${hoursSinceLastSuccess}h ago, before the market update at ${marketUpdated}.`}{" "}
             Prices and points on screen are from the previous cycle.
           </p>
-          {triggerError && <p className="state-error">{triggerError}</p>}
+          {data.suggestComplete && (
+            <p className="state-note">
+              A complete refresh is recommended — some players&apos; history is behind.
+            </p>
+          )}
         </div>
-        <div className="flex shrink-0 gap-sm">
-          <button
-            type="button"
-            onClick={handleRefreshNow}
-            disabled={isTriggering}
-            className="btn btn-primary"
-          >
-            {isTriggering ? "Refreshing…" : "Refresh now"}
-          </button>
+        <div className="flex shrink-0 items-center gap-sm">
+          <RefreshControls onTriggered={handleTriggered} />
           <button type="button" onClick={() => setDismissed(true)} className="btn btn-ghost">
             Not now
           </button>
