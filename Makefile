@@ -1,4 +1,4 @@
-.PHONY: dev api web test scrape backfill
+.PHONY: dev api web test scrape scrape-mine scrape-full backfill
 
 dev:
 	@echo "Starting FastAPI (127.0.0.1:8000) and Vite dev server (127.0.0.1:5173)..."
@@ -21,6 +21,12 @@ test:
 
 scrape:
 	uv run python -m scraper.run
+
+scrape-mine:
+	uv run python -m scraper.run --mine
+
+scrape-full:
+	uv run python -m scraper.run --full
 
 backfill:
 	uv run python -m scraper.backfill --season 2025

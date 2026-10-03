@@ -1,22 +1,16 @@
-import json
 from datetime import date
 from pathlib import Path
 
 import pytest
 
 from scraper.sources.af_player_page import parse_player_page
+from tests.scraper.player_page_html import html_with_payload
 
 FIXTURES = Path(__file__).resolve().parents[1] / "fixtures" / "player-page"
 
 
 def _read(name: str) -> str:
     return (FIXTURES / name).read_text(encoding="utf-8")
-
-
-def _html_with_payload(payload: dict) -> str:
-    inner = "1:" + json.dumps(payload)
-    array_literal = json.dumps([1, inner])
-    return f"<html><body><script>self.__next_f.push({array_literal})</script></body></html>"
 
 
 def test_parses_market_oldest_first_and_matches_week_ascending():
@@ -50,7 +44,7 @@ def test_parses_market_oldest_first_and_matches_week_ascending():
             },
         ],
     }
-    html = _html_with_payload(payload)
+    html = html_with_payload(payload)
 
     page = parse_player_page(html)
 
@@ -68,7 +62,7 @@ def test_parses_market_oldest_first_and_matches_week_ascending():
 
 
 def test_missing_market_history_raises_value_error():
-    html = _html_with_payload({"someOtherKey": [{"foo": "bar"}]})
+    html = html_with_payload({"someOtherKey": [{"foo": "bar"}]})
 
     with pytest.raises(ValueError):
         parse_player_page(html)
