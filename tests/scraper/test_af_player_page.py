@@ -74,3 +74,70 @@ def test_parses_the_captured_grimaldo_page():
     assert len(page.market) == 48
     assert page.market[0].day == date(2026, 8, 14)
     assert len(page.matches) == 7
+
+
+def _stats_row(week: int, minutes, points=0) -> dict:
+    return {
+        "week": week, "points": points, "minutes": minutes, "goals": 0, "assists": 0,
+        "yellowCards": 0, "redCards": 0, "stats": {}, "fixture": "Team A - Team B",
+    }
+
+
+def test_a_later_market_row_without_a_date_is_malformed():
+    """`find_records` only checks the first row — every later one is the
+    parser's to validate, as a ValueError the refresh treats as a gap."""
+    html = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-08-14", "marketValue": 1_000_000, "delta": 0},
+                {"day": 2, "marketValue": 1_100_000, "delta": 100_000},
+            ]
+        }
+    )
+
+    with pytest.raises(ValueError, match="malformed player page"):
+        parse_player_page(html)
+
+
+def test_a_null_market_date_is_malformed():
+    html = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-08-14", "marketValue": 1_000_000, "delta": 0},
+                {"day": 2, "date": None, "marketValue": 1_100_000, "delta": 100_000},
+            ]
+        }
+    )
+
+    with pytest.raises(ValueError, match="malformed player page"):
+        parse_player_page(html)
+
+
+def test_a_stats_row_with_null_minutes_is_malformed():
+    html = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-08-14", "marketValue": 1_000_000, "delta": 0},
+            ],
+            "statsRows": [_stats_row(1, 90), _stats_row(2, None)],
+        }
+    )
+
+    with pytest.raises(ValueError, match="malformed player page"):
+        parse_player_page(html)
+
+
+def test_a_later_stats_row_without_points_is_malformed():
+    row = _stats_row(2, 90)
+    del row["points"]
+    html = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-08-14", "marketValue": 1_000_000, "delta": 0},
+            ],
+            "statsRows": [_stats_row(1, 90), row],
+        }
+    )
+
+    with pytest.raises(ValueError, match="malformed player page"):
+        parse_player_page(html)

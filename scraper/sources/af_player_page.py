@@ -59,38 +59,67 @@ def fetch_player_page(slug: str, settings: Settings | None = None) -> str:
     )
 
 
+def _int(value) -> int:
+    """`value` if it is a real int — not a bool, not null, not a float."""
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"expected an int, got {value!r}")
+    return value
+
+
+def _daily_value(r: dict) -> DailyValue:
+    delta = r.get("delta")
+    return DailyValue(
+        day=date.fromisoformat(r["date"]),
+        market_value=_int(r["marketValue"]),
+        delta=None if delta is None else _int(delta),
+    )
+
+
+def _match_row(r: dict) -> MatchRow:
+    components = r.get("stats") or {}
+    if not isinstance(components, dict):
+        raise TypeError(f"expected a stats dict, got {components!r}")
+    return MatchRow(
+        week=_int(r["week"]),
+        minutes=_int(r["minutes"]),
+        points=_int(r["points"]),
+        components=components,
+    )
+
+
+def _rows(records: list, build, key: str) -> list:
+    """Build every row, turning any per-row shape error into one
+    `ValueError` — `find_records` vets only the first row, so a later row
+    missing a field (or carrying a null) must still read as a malformed
+    page, which the refresh records as a gap, not a crash."""
+    out = []
+    for i, r in enumerate(records):
+        try:
+            if not isinstance(r, dict):
+                raise TypeError(f"expected a dict, got {type(r).__name__}")
+            out.append(build(r))
+        except (KeyError, TypeError, ValueError) as exc:
+            raise ValueError(
+                f"malformed player page: {key}[{i}]: {type(exc).__name__}: {exc}"
+            ) from exc
+    return out
+
+
 def parse_player_page(html: str) -> PlayerPage:
-    """Parse one player's page. Pure over HTML — no network of its own."""
+    """Parse one player's page. Pure over HTML — no network of its own.
+
+    Raises `ValueError` when there is no `marketHistory`, or when any row of
+    `marketHistory` / `statsRows` lacks a field or carries the wrong type
+    (`minutes`, `points`, `week`, `marketValue` must be ints; a null
+    `minutes` is malformed, not "did not play")."""
     market_records = find_records(html, "marketHistory", "marketValue")
     if market_records is None:
         raise ValueError("no marketHistory in player page")
-
-    market = sorted(
-        (
-            DailyValue(
-                day=date.fromisoformat(r["date"]),
-                market_value=r["marketValue"],
-                delta=r.get("delta"),
-            )
-            for r in market_records
-        ),
-        key=lambda m: m.day,
-    )
+    market = sorted(_rows(market_records, _daily_value, "marketHistory"), key=lambda m: m.day)
 
     # `statsRows` may be absent early in a season, before the player's
     # first jornada — not an error, just no matches yet.
     match_records = find_records(html, "statsRows", "minutes") or []
-    matches = sorted(
-        (
-            MatchRow(
-                week=r["week"],
-                minutes=r["minutes"],
-                points=r["points"],
-                components=r.get("stats") or {},
-            )
-            for r in match_records
-        ),
-        key=lambda m: m.week,
-    )
+    matches = sorted(_rows(match_records, _match_row, "statsRows"), key=lambda m: m.week)
 
     return PlayerPage(market=market, matches=matches)

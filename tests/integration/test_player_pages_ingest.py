@@ -21,8 +21,13 @@ from storage.models import (
     ScrapeRun,
     SquadMember,
 )
-from storage.repository import add_to_watchlist, get_dataset_runs
-from tests.scraper.player_page_html import minimal_player_page
+from storage.repository import (
+    add_to_watchlist,
+    finish_dataset_run,
+    get_dataset_runs,
+    start_dataset_run,
+)
+from tests.scraper.player_page_html import html_with_payload, minimal_player_page
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)  # 14:00 Madrid, after the 08:00 update
 SETTINGS = Settings(current_season_year=2026)
@@ -194,7 +199,98 @@ def test_budget_stops_and_records_a_note(session, monkeypatch):
     fetch.calls.clear()
     ingest_player_pages(session, run, capped, mode="complete", now=NOW + timedelta(minutes=5))
 
-    assert fetch.calls[0] == "player-3"
+    assert fetch.calls == ["player-3"]
+
+
+def _malformed_fetcher(bad_slug: str, bad_page: str) -> _Fetcher:
+    class Fetcher(_Fetcher):
+        def __call__(self, slug, settings=None):
+            self.calls.append(slug)
+            return bad_page if slug == bad_slug else minimal_player_page(day="2026-09-02")
+
+    return Fetcher()
+
+
+def test_a_market_row_without_a_date_is_a_gap(session, monkeypatch):
+    run = _seed(session)
+    bad = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-09-01", "marketValue": 1_000_000, "delta": 0},
+                {"day": 2, "marketValue": 1_000_000, "delta": 0},
+            ]
+        }
+    )
+    fetch = _malformed_fetcher("player-2", bad)
+    monkeypatch.setattr("scraper.run.fetch_player_page", fetch)
+
+    ingest_player_pages(session, run, SETTINGS, mode="complete", now=NOW)
+
+    assert fetch.calls == ["player-1", "player-2", "player-3"]
+    ds = _dataset(session, run)
+    assert ds.status == "success"
+    assert ds.skipped_count == 1
+    assert session.get(PlayerPageFetch, 2).status == "gap"
+    assert session.get(PlayerPageFetch, 3).status == "ok"
+
+
+def test_a_stats_row_with_null_minutes_is_a_gap(session, monkeypatch):
+    run = _seed(session)
+    bad = html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-09-01", "marketValue": 1_000_000, "delta": 0},
+            ],
+            "statsRows": [
+                {"week": 1, "points": 2, "minutes": 90, "stats": {}},
+                {"week": 2, "points": 0, "minutes": None, "stats": {}},
+            ],
+        }
+    )
+    fetch = _malformed_fetcher("player-2", bad)
+    monkeypatch.setattr("scraper.run.fetch_player_page", fetch)
+
+    ingest_player_pages(session, run, SETTINGS, mode="complete", now=NOW)
+
+    assert fetch.calls == ["player-1", "player-2", "player-3"]
+    ds = _dataset(session, run)
+    assert ds.status == "success"
+    assert ds.skipped_count == 1
+    assert session.get(PlayerPageFetch, 2).status == "gap"
+    assert {r.player_id for r in session.exec(select(PlayerMatchStats)).all()} == {1, 3}
+
+
+def _earlier_dataset(session, run, dataset: str, status: str, errors: list[str]) -> None:
+    ds = start_dataset_run(session, run.id, dataset)
+    finish_dataset_run(session, ds, status, errors=errors)
+
+
+def test_a_source_block_earlier_in_the_run_skips_player_pages(session, monkeypatch):
+    run = _seed(session)
+    _earlier_dataset(session, run, "season_stats", "failed", ["ScrapeBlocked: HTTP 429"])
+    fetch = _Fetcher()
+    monkeypatch.setattr("scraper.run.fetch_player_page", fetch)
+
+    ingest_player_pages(session, run, SETTINGS, mode="complete", now=NOW)
+
+    assert fetch.calls == []
+    ds = _dataset(session, run)
+    assert ds.status == "skipped"
+    assert "source blocked earlier in run" in ds.errors
+
+
+def test_a_block_on_another_source_or_a_non_block_failure_does_not_skip(session, monkeypatch):
+    run = _seed(session)
+    _earlier_dataset(session, run, "football_data", "failed", ["ScrapeBlocked: HTTP 403"])
+    _earlier_dataset(session, run, "fixtures", "failed", ["ScrapeStructureChanged: x"])
+    _earlier_dataset(session, run, "market_model", "failed", ["ScrapeBlocked: odd"])
+    fetch = _Fetcher()
+    monkeypatch.setattr("scraper.run.fetch_player_page", fetch)
+
+    ingest_player_pages(session, run, SETTINGS, mode="complete", now=NOW)
+
+    assert len(fetch.calls) == 3
+    assert _dataset(session, run).status == "success"
 
 
 def _offline_refresh(monkeypatch, tmp_path) -> list[str]:

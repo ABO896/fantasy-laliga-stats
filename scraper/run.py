@@ -91,6 +91,22 @@ MAX_GAP_NOTES = 5
 
 MADRID = ZoneInfo("Europe/Madrid")
 
+#: Datasets of this run that do not fetch from analiticafantasy.com, so a
+#: block recorded on them says nothing about whether the source will answer
+#: player-page requests.
+NOT_THE_SOURCE = EXTERNAL_DATASETS | {"market_model", "expected_points", "player_pages"}
+
+
+def source_blocked_earlier(session, run_id: int) -> bool:
+    """Whether a source dataset already ended `failed` on a `ScrapeBlocked`
+    in this run — then the site is refusing us and hundreds of page requests
+    would only dig the hole deeper."""
+    return any(
+        d.status == "failed" and "ScrapeBlocked" in (d.errors or "")
+        for d in get_dataset_runs(session, run_id)
+        if d.dataset not in NOT_THE_SOURCE
+    )
+
 #: A final jornada normally has all 20 clubs. Fewer is recorded as a note on
 #: the dataset run (a postponed match, or a capture problem) — not a failure.
 MIN_FINAL_CLUBS = 18
@@ -308,6 +324,8 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
     A block (403/429) is the one exception — it stops the loop at once and
     fails the dataset, keeping what was already written; the blocked player
     is not logged as fetched, so he stays first in line for the next run.
+    And when an earlier source dataset of this same run already failed on a
+    block, the dataset is recorded `skipped` without a single request.
     """
     if mode not in MODES:
         raise ValueError(f"unknown refresh mode {mode!r}; expected one of {MODES}")
@@ -317,7 +335,14 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
     settings = settings or get_settings()
     now = now or datetime.now(UTC)
     season = settings.current_season_year
+    blocked_before = source_blocked_earlier(session, run.id)
     dataset_run = start_dataset_run(session, run.id, "player_pages")
+    if blocked_before:
+        finish_dataset_run(
+            session, dataset_run, "skipped", season_year=season,
+            errors=["source blocked earlier in run"],
+        )
+        return
 
     if mode == "mine":
         scope = my_player_ids(session)
