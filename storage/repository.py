@@ -118,16 +118,20 @@ def get_latest_players(session: Session) -> list[tuple[PlayerSnapshot, Player]]:
     return list(rows)
 
 
-def get_last_successful_run(session: Session) -> ScrapeRun | None:
+def get_last_successful_run(session: Session, mode: str | None = None) -> ScrapeRun | None:
     """The most recent run whose status is `success` specifically — never
     merely the most recent run of any status. A `rejected`/`failed` run
     finishing later must not make the data look fresher than it is
-    (T-05-04)."""
-    return session.exec(
-        select(ScrapeRun)
-        .where(ScrapeRun.status == "success")
-        .order_by(ScrapeRun.finished_at.desc())
-    ).first()
+    (T-05-04).
+
+    `mode=None` (the default) keeps every existing caller's behavior
+    unchanged — any mode counts. Pass a specific mode (e.g. `"complete"`)
+    to find the last successful run of that mode only, as `/api/health`
+    does for `lastCompleteRun`."""
+    query = select(ScrapeRun).where(ScrapeRun.status == "success")
+    if mode is not None:
+        query = query.where(ScrapeRun.mode == mode)
+    return session.exec(query.order_by(ScrapeRun.finished_at.desc())).first()
 
 
 def get_recent_runs(session: Session, limit: int = 10) -> list[ScrapeRun]:
