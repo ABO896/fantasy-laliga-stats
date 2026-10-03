@@ -9,9 +9,18 @@ import sqlalchemy as sa
 from sqlmodel import select
 
 from scraper.sources.af_player_page import DailyValue, MatchRow, PlayerPage
-from storage.models import Player, PlayerMarketDaily, PlayerMatchStats, ScrapeRun, SquadMember
+from storage.models import (
+    Player,
+    PlayerGameweekPoints,
+    PlayerMarketDaily,
+    PlayerMatchStats,
+    PlayerSnapshot,
+    ScrapeRun,
+    SquadMember,
+)
 from storage.player_pages import (
     build_candidates,
+    coverage,
     my_player_ids,
     record_fetch,
     upsert_player_page,
@@ -120,7 +129,6 @@ def test_candidates_flag_a_missing_finished_week(session):
     run = make_run(session)
     for pid in range(1, 6):
         make_player(session, pid, team="Sevilla FC")
-    from storage.models import PlayerGameweekPoints
 
     for pid in range(1, 6):
         session.add(
@@ -143,6 +151,74 @@ def test_candidates_flag_a_missing_finished_week(session):
     assert len(candidates) == 1
     assert candidates[0].player_id == 1
     assert candidates[0].missing_weeks == frozenset({1})
+
+
+def _snapshot(session, run, pid, as_of):
+    session.add(
+        PlayerSnapshot(
+            as_of=as_of, player_id=pid, market_value=1_000_000, points=0,
+            availability_status="available", raw_fields="{}", scrape_run_id=run.id,
+        )
+    )
+
+
+def _daily(session, run, pid, day):
+    session.add(
+        PlayerMarketDaily(
+            season_year=SEASON, day=day, player_id=pid, market_value=1_000_000,
+            delta=None, scrape_run_id=run.id,
+        )
+    )
+
+
+def test_coverage_counts_complete_and_gapped(session):
+    """One player complete (fresh day, no gap), one with a stale last day,
+    one fresh but missing a finished week — only the first counts as
+    complete; the weekly-sweep interval plays no part in either."""
+    run = make_run(session)
+    expected = date(2026, 9, 5)
+    now = datetime(2026, 9, 10, tzinfo=UTC)
+
+    make_player(session, 1, team="Getafe")  # complete
+    make_player(session, 2, team="Getafe")  # stale last day
+    make_player(session, 3, team="Sevilla FC")  # missing finished week
+    for pid in (4, 5, 6, 7):
+        make_player(session, pid, team="Sevilla FC")
+
+    latest_as_of = date(2026, 9, 7)
+    for pid in (1, 2, 3):
+        _snapshot(session, run, pid, latest_as_of)
+    session.commit()
+
+    _daily(session, run, 1, date(2026, 9, 5))  # == expected: fresh
+    _daily(session, run, 2, date(2026, 9, 1))  # < expected: stale
+    _daily(session, run, 3, date(2026, 9, 6))  # > expected: fresh
+    session.commit()
+
+    # Sevilla FC's week 1 is covered by >= MIN_TEAM_ROWS players (3..7), so
+    # the club "played" it, but player 3 never got a PlayerMatchStats row.
+    for pid in (3, 4, 5, 6, 7):
+        session.add(
+            PlayerGameweekPoints(
+                season_year=SEASON, week=1, player_id=pid, points=5,
+                is_provisional=False, scrape_run_id=run.id,
+            )
+        )
+    session.commit()
+
+    for fid in range(1, 9):
+        seed_fixture(
+            session, fid, matchday=1, kickoff=datetime(2026, 8, 20, tzinfo=UTC),
+            final=True, season_year=SEASON,
+        )
+
+    result = coverage(session, SEASON, expected, now)
+    assert result == {
+        "players": 3,
+        "complete": 1,
+        "withGaps": 2,
+        "oldestLastDay": date(2026, 9, 1),
+    }
 
 
 def test_my_player_ids_is_squad_plus_watchlist(session):

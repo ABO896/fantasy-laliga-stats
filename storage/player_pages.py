@@ -137,25 +137,23 @@ def record_fetch(
     session.commit()
 
 
-def coverage(session: Session, season: int, expected: date) -> dict:
-    """A snapshot of player-page freshness across every tracked player:
-    how many have a day-value at or after `expected`, and the oldest
-    `last_day` among those that have any at all."""
-    ids = _default_player_ids(session)
-    last_days: dict[int, date | None] = {}
-    for pid in ids:
-        last_days[pid] = session.exec(
-            select(func.max(PlayerMarketDaily.day))
-            .where(PlayerMarketDaily.season_year == season)
-            .where(PlayerMarketDaily.player_id == pid)
-        ).one()
-
-    complete = sum(1 for d in last_days.values() if d is not None and d >= expected)
-    known_days = [d for d in last_days.values() if d is not None]
+def coverage(session: Session, season: int, expected: date, now: datetime) -> dict:
+    """A snapshot of player-page freshness across every tracked player: a
+    player counts as complete only when his daily values reach `expected`
+    *and* he has no missing finished-week match row — built on the same
+    `Candidate`s `build_candidates` selection reads from, so the two never
+    disagree about what a gap is. The weekly re-sweep interval plays no
+    part here — a page that is otherwise complete is not a gap just
+    because it is due for its periodic re-check."""
+    candidates = build_candidates(session, season, now, None)
+    with_gaps = sum(
+        1 for c in candidates if c.last_day is None or c.last_day < expected or c.missing_weeks
+    )
+    known_days = [c.last_day for c in candidates if c.last_day is not None]
     return {
-        "players": len(ids),
-        "complete": complete,
-        "withGaps": len(ids) - complete,
+        "players": len(candidates),
+        "complete": len(candidates) - with_gaps,
+        "withGaps": with_gaps,
         "oldestLastDay": min(known_days) if known_days else None,
     }
 
