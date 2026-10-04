@@ -18,8 +18,8 @@ from sqlmodel import Session, delete, func, select
 
 from core import analytics as an
 from core import market_model as mm
+from core.analytics import team_played_weeks  # lives in core; storage callers import it here
 from core.config import get_settings
-from core.xp_backtest import MIN_TEAM_ROWS
 from storage.db import as_utc
 from storage.expected_points import last_season_means
 from storage.models import (
@@ -74,23 +74,6 @@ def load_snapshot_points(
     for pid, *fields in session.exec(query).all():
         out[pid].append(mm.SnapshotPoint(*fields))
     return out
-
-
-def team_played_weeks(
-    rows: list[an.GameweekRow], team_of: dict[int, str]
-) -> dict[str, set[tuple[int, int]]]:
-    """Per club, the weeks it played: at least `MIN_TEAM_ROWS` of its (current)
-    players have a row. The same test MODEL-02's history already uses."""
-    counts: dict[tuple[str, int, int], int] = defaultdict(int)
-    for r in rows:
-        team = team_of.get(r.player_id)
-        if team is not None:
-            counts[(team, r.season_year, r.week)] += 1
-    out: dict[str, set[tuple[int, int]]] = defaultdict(set)
-    for (team, season, week), n in counts.items():
-        if n >= MIN_TEAM_ROWS:
-            out[team].add((season, week))
-    return dict(out)
 
 
 def calendar_final_weeks(session: Session, season: int, now: datetime) -> set[tuple[int, int]]:
