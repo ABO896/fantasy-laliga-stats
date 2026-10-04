@@ -1,6 +1,6 @@
-import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { fetchHealth, ScrapeAlreadyRunningError, triggerScrape } from "../api-client/health";
+import { fetchHealth } from "../api-client/health";
+import RefreshControls from "../components/RefreshControls";
 import ScrapeRunList from "../components/ScrapeRunList";
 import PageHeader from "../components/ui/PageHeader";
 
@@ -13,8 +13,6 @@ import PageHeader from "../components/ui/PageHeader";
  * without a manual reload. */
 export default function HealthPage() {
   const queryClient = useQueryClient();
-  const [triggerError, setTriggerError] = useState<string | null>(null);
-  const [isTriggering, setIsTriggering] = useState(false);
 
   const { data } = useQuery({
     queryKey: ["health"],
@@ -23,29 +21,23 @@ export default function HealthPage() {
   });
 
   const newestIsRunning = data?.recentRuns[0]?.status === "running";
-  const isRefreshing = isTriggering || newestIsRunning;
 
-  async function handleRefreshNow() {
-    setTriggerError(null);
-    setIsTriggering(true);
-    try {
-      await triggerScrape();
-      await queryClient.invalidateQueries({ queryKey: ["health"] });
-    } catch (error) {
-      setTriggerError(
-        error instanceof ScrapeAlreadyRunningError
-          ? "A scrape is already in progress."
-          : "Couldn't start the refresh. Try again.",
-      );
-    } finally {
-      setIsTriggering(false);
-    }
+  async function handleTriggered() {
+    await queryClient.invalidateQueries({ queryKey: ["health"] });
   }
 
   const lastSuccessfulRun = data?.lastSuccessfulRun ?? null;
+  const lastCompleteRun = data?.lastCompleteRun ?? null;
   const hoursSinceLastSuccess = data?.hoursSinceLastSuccess ?? null;
   const isStale = data?.isStale ?? false;
   const recentRuns = data?.recentRuns ?? [];
+  const playerPages = data?.playerPages ?? {
+    players: 0,
+    complete: 0,
+    withGaps: 0,
+    withMatchGaps: 0,
+    oldestLastDay: null,
+  };
 
   return (
     <div className="flex max-w-[56rem] flex-col gap-lg">
@@ -70,18 +62,28 @@ export default function HealthPage() {
             {hoursSinceLastSuccess !== null ? `${Math.round(hoursSinceLastSuccess)}h ago` : "Never refreshed"}
           </p>
         </div>
+        <RefreshControls disabled={newestIsRunning} onTriggered={handleTriggered} />
+      </section>
+
+      <section className="panel flex flex-wrap items-center justify-between gap-lg px-lg py-md">
         <div>
-        <button
-          type="button"
-          onClick={handleRefreshNow}
-          disabled={isRefreshing}
-          className="btn btn-primary"
-        >
-          {isRefreshing ? "Refreshing…" : "Refresh now"}
-        </button>
-        {triggerError && (
-          <p className="state-error mt-xs">{triggerError}</p>
-        )}
+          <p className="section-title">Last complete refresh</p>
+          <p className="state-note">
+            {lastCompleteRun
+              ? new Date(lastCompleteRun.finishedAt ?? lastCompleteRun.startedAt).toLocaleString()
+              : "Never run"}
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-md">
+          <p className="state-note">
+            {`${playerPages.complete} of ${playerPages.players} players complete`}
+          </p>
+          {playerPages.oldestLastDay !== null && (
+            <p className="state-note">{`oldest data: ${playerPages.oldestLastDay}`}</p>
+          )}
+          {playerPages.withMatchGaps > 0 && (
+            <p className="state-note">{`${playerPages.withMatchGaps} with missing matches`}</p>
+          )}
         </div>
       </section>
 

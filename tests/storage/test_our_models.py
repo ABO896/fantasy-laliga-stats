@@ -266,3 +266,23 @@ def test_calendar_final_weeks(session):
     add(5, now - timedelta(hours=1), False)
 
     assert calendar_final_weeks(session, 2026, now) == {(2026, 6), (2026, 7)}
+
+
+def test_other_season_fixtures_are_ignored(session):
+    """A prior season's matchday 7 is long over; the current season's
+    matchday 7 has not kicked off yet. `calendar_final_weeks` must not mix
+    the two just because `matchday` repeats every season."""
+    now = datetime(2026, 9, 30, 12, tzinfo=UTC)
+    fid = 0
+
+    def add(matchday, kickoff, final, season_year):
+        nonlocal fid
+        fid += 1
+        _fixture(session, fid, matchday, kickoff, final, season_year=season_year)
+
+    for i in range(10):
+        add(7, datetime(2026, 3, 1, 19, tzinfo=UTC), True, 2025)
+    for i in range(10):
+        add(7, now + timedelta(days=5), False, 2026)
+
+    assert calendar_final_weeks(session, 2026, now) == set()

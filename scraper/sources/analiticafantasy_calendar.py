@@ -54,6 +54,7 @@ from datetime import datetime
 from bs4 import BeautifulSoup
 
 from core.config import Settings, get_settings
+from core.seasons import season_of
 from scraper.http import fetch_page
 
 _NEXT_F_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*$", re.S)
@@ -84,6 +85,7 @@ class FixtureRecord:
 
     fixture_id: int
     matchday: int
+    season_year: int
     kickoff_utc: datetime
     kickoff_confirmed: bool
     is_final: bool
@@ -244,11 +246,13 @@ def parse_calendar(html: str) -> list[FixtureRecord]:
                 return opponent_cell["matchday"]["opponentName"]
             return subject_cell["teamName"]
 
+        kickoff_utc = datetime.fromisoformat(fixture["fixtureDate"])
         records.append(
             FixtureRecord(
                 fixture_id=fixture_id,
                 matchday=jornada_of[fixture_id],
-                kickoff_utc=datetime.fromisoformat(fixture["fixtureDate"]),
+                season_year=season_of(kickoff_utc),
+                kickoff_utc=kickoff_utc,
                 kickoff_confirmed=jornada_of[fixture_id] in confirmed,
                 is_final=any(
                     bool(c["matchday"].get("isFinal")) for c in (home_cell, away_cell) if c

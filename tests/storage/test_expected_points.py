@@ -13,6 +13,7 @@ from storage.expected_points import (
     expected_points_payload,
     refresh_expected_points,
     score_expected_points,
+    select_target,
     track_record_payload,
 )
 from storage.models import (
@@ -59,10 +60,10 @@ def _points(session, run, pid, week, pts, season=SEASON, provisional=False):
     session.commit()
 
 
-def _fixture(session, fid, matchday, home, away, kickoff, final=False):
+def _fixture(session, fid, matchday, home, away, kickoff, final=False, season_year=SEASON):
     session.add(Fixture(fixture_id=fid, matchday=matchday, kickoff_utc=kickoff,
                         kickoff_confirmed=True, is_final=final, home_team=home, away_team=away,
-                        scraped_at=NOW))
+                        scraped_at=NOW, season_year=season_year))
     session.commit()
 
 
@@ -109,6 +110,17 @@ def _world(session):
 
 def _stored(session):
     return {r.player_id: r for r in session.exec(select(ExpectedPointsPrediction)).all()}
+
+
+def test_select_target_ignores_other_season_fixtures(session):
+    """A 2025 fixture with a future kickoff must not become the 2026
+    target — `matchday` repeats every season, so the calendar lookup must
+    also filter on `season_year`."""
+    _fixture(session, 1, 1, "Home FC", "Away FC", NOW + timedelta(days=5), season_year=2025)
+    target = select_target(session, NOW, SEASON)
+    assert target.fixtures == {}
+    assert target.calendar_teams == frozenset()
+    assert target.jornada == 1  # no 2026 calendar, no stored points yet
 
 
 def test_next_jornada_is_the_first_one_not_yet_started(session):

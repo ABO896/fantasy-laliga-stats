@@ -20,17 +20,27 @@ and `rejected` is only how far the run got, never whether existing
 history survives.
 """
 
+import argparse
 from datetime import UTC, date, datetime
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from sqlmodel import Session
 
 from core.config import get_settings
+from core.player_pages import expected_last_day, select_players
 from core.transform import to_snapshot
 from core.validation import validate_fixtures, validate_scrape
-from scraper.errors import ScrapeError, ScrapeNotPublished
+from scraper.errors import (
+    ScrapeBlocked,
+    ScrapeError,
+    ScrapeNetworkError,
+    ScrapeNotPublished,
+    ScrapeStructureChanged,
+)
 from scraper.external_ingest import EXTERNAL_DATASETS, ingest_football_data
 from scraper.sources.af_jornada import fetch_jornada, parse_jornada
+from scraper.sources.af_player_page import fetch_player_page, parse_player_page
 from scraper.sources.af_predictions import (
     MARKET_SOURCES,
     fetch_market_predictions,
@@ -43,8 +53,15 @@ from scraper.sources.analiticafantasy import fetch_pages, parse_page
 from scraper.sources.analiticafantasy_calendar import fetch_calendar, parse_calendar
 from storage.db import get_engine
 from storage.expected_points import refresh_expected_points
-from storage.models import RawScrape, ScrapeRun
+from storage.models import Player, RawScrape, ScrapeRun
 from storage.our_models import refresh_market_predictions
+from storage.player_pages import (
+    build_candidates,
+    max_finished_week,
+    my_player_ids,
+    record_fetch,
+    upsert_player_page,
+)
 from storage.repository import (
     finish_dataset_run,
     finish_run,
@@ -63,6 +80,33 @@ from storage.repository import (
     upsert_season_stats,
     weeks_to_refetch,
 )
+
+#: Refresh modes. `quick` is the daily refresh as it always was; `mine` adds
+#: the player pages of the squad and watchlist; `complete` adds every due
+#: player page in the latest market snapshot, up to the request budget.
+MODES = ("quick", "mine", "complete")
+
+#: Gap errors listed on the dataset run's notes, so one bad night cannot
+#: bury the counts under hundreds of lines.
+MAX_GAP_NOTES = 5
+
+MADRID = ZoneInfo("Europe/Madrid")
+
+#: Datasets of this run that do not fetch from analiticafantasy.com, so a
+#: block recorded on them says nothing about whether the source will answer
+#: player-page requests.
+NOT_THE_SOURCE = EXTERNAL_DATASETS | {"market_model", "expected_points", "player_pages"}
+
+
+def source_blocked_earlier(session, run_id: int) -> bool:
+    """Whether a source dataset already ended `failed` on a `ScrapeBlocked`
+    in this run — then the site is refusing us and hundreds of page requests
+    would only dig the hole deeper."""
+    return any(
+        d.status == "failed" and "ScrapeBlocked" in (d.errors or "")
+        for d in get_dataset_runs(session, run_id)
+        if d.dataset not in NOT_THE_SOURCE
+    )
 
 #: A final jornada normally has all 20 clubs. Fewer is recorded as a note on
 #: the dataset run (a postponed match, or a capture problem) — not a failure.
@@ -260,6 +304,106 @@ def ingest_fixtures(session, run, settings) -> None:
         finish_dataset_run(session, dataset_run, "failed", errors=[f"{type(exc).__name__}: {exc}"])
 
 
+def ingest_player_pages(session, run, settings, mode: str, now: datetime | None = None) -> None:
+    """Store per-player pages (daily market values and per-jornada match
+    rows) for the players this refresh mode covers.
+
+    - `quick`: nothing — returns before any request and writes no
+      `DatasetRun`, so a quick refresh is exactly the refresh it always was.
+    - `mine`: the current squad plus the watchlist, no request budget.
+    - `complete`: everyone in the latest market snapshot, capped at
+      `settings.player_pages_max_requests` requests; a run cut short by the
+      budget resumes next time, because selection puts the oldest fetch
+      first.
+
+    Only players with a gap (or due their weekly re-sweep) are fetched — see
+    `core/player_pages.select_players`.
+
+    A bad page is a gap, not a failure: not published, a structure change,
+    an unparseable payload, or a network error that survived the fetcher's
+    own retries is logged on that player's fetch row and the loop moves on.
+    A block (403/429) is the one exception — it stops the loop at once and
+    fails the dataset, keeping what was already written; the blocked player
+    is not logged as fetched, so he stays first in line for the next run.
+    And when an earlier source dataset of this same run already failed on a
+    block, the dataset is recorded `skipped` without a single request.
+    """
+    if mode not in MODES:
+        raise ValueError(f"unknown refresh mode {mode!r}; expected one of {MODES}")
+    if mode == "quick":
+        return
+
+    settings = settings or get_settings()
+    now = now or datetime.now(UTC)
+    season = settings.current_season_year
+    blocked_before = source_blocked_earlier(session, run.id)
+    dataset_run = start_dataset_run(session, run.id, "player_pages")
+    if blocked_before:
+        finish_dataset_run(
+            session, dataset_run, "skipped", season_year=season,
+            errors=["source blocked earlier in run"],
+        )
+        return
+
+    if mode == "mine":
+        scope = my_player_ids(session)
+        budget = None
+        if not scope:
+            finish_dataset_run(
+                session, dataset_run, "success", season_year=season,
+                errors=["no squad or watchlist players"],
+            )
+            return
+    else:
+        scope = None
+        budget = settings.player_pages_max_requests
+
+    expected = expected_last_day(now.astimezone(MADRID), settings.market_update_hour)
+    candidates = build_candidates(session, season, now, scope)
+    checked_through = max_finished_week(session, season, now)
+    due = select_players(candidates, expected, now, settings.player_pages_sweep_days, None)
+    selected = due if budget is None else due[:budget]
+
+    written = attempted = 0
+    gaps: list[str] = []
+    blocked: str | None = None
+    for player_id in selected:
+        slug = session.get(Player, player_id).external_id
+        attempted += 1
+        try:
+            page = parse_player_page(fetch_player_page(slug, settings))
+        except ScrapeBlocked as exc:
+            blocked = f"{type(exc).__name__}: {exc}"
+            break
+        except (
+            ScrapeNotPublished, ScrapeStructureChanged, ScrapeNetworkError, ValueError
+        ) as exc:
+            error = f"{type(exc).__name__}: {exc}"
+            gaps.append(f"{slug}: {error}")
+            record_fetch(session, player_id, now, "gap", error)
+            continue
+        days, matches = upsert_player_page(session, season, player_id, page, run.id)
+        record_fetch(session, player_id, now, "ok", weeks_checked_through=checked_through)
+        written += days + matches
+
+    notes = [f"fetched {attempted} of {len(due)} due"]
+    if len(selected) < len(due):
+        notes.append("budget reached")
+    notes.extend(gaps[:MAX_GAP_NOTES])
+
+    if blocked is not None:
+        session.rollback()
+        finish_dataset_run(
+            session, dataset_run, "failed", row_count=written, skipped_count=len(gaps),
+            season_year=season, errors=[blocked, *notes],
+        )
+        return
+    finish_dataset_run(
+        session, dataset_run, "success", row_count=written, skipped_count=len(gaps),
+        season_year=season, errors=notes,
+    )
+
+
 def run_our_models(session, run) -> None:
     """Generate and score our own market predictions (MODEL-01/03).
 
@@ -315,14 +459,20 @@ def run_expected_points(session, run) -> None:
         finish_dataset_run(session, dataset_run, "failed", errors=[f"{type(exc).__name__}: {exc}"])
 
 
-def run_daily_refresh(run_id: int | None = None):
+def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
     """Run the pipeline. When `run_id` is given, reuse that already-started
     `ScrapeRun` row instead of creating a new one via `start_run` — this is
     how `POST /api/scrape/trigger` (01-05) gets a persisted run id to
     return in its response *before* scheduling this function as a
     `BackgroundTasks` callback, without duplicating the pipeline or
     leaving an orphaned second run row. The scheduler/CLI paths call this
-    with no arguments, unchanged."""
+    with no `run_id`.
+
+    `mode` (one of `MODES`) only decides which player pages are fetched —
+    see `ingest_player_pages`. It is stamped on the run before anything is
+    fetched, in both the new-run and reused-run paths."""
+    if mode not in MODES:
+        raise ValueError(f"unknown refresh mode {mode!r}; expected one of {MODES}")
     settings = get_settings()
     with Session(get_engine()) as session:
         if run_id is not None:
@@ -333,6 +483,7 @@ def run_daily_refresh(run_id: int | None = None):
         raw_dir = Path(settings.raw_snapshot_root) / f"run_{run.id}"
         raw_dir.mkdir(parents=True, exist_ok=True)
         run.raw_snapshot_dir = str(raw_dir)
+        run.mode = mode
         session.add(run)
         session.commit()
 
@@ -425,6 +576,11 @@ def run_daily_refresh(run_id: int | None = None):
                 ingest_season_stats(session, run, settings)
                 ingest_points_predictions(session, run, settings)
                 ingest_market_predictions(session, run, settings)
+                # After the jornada points (selection needs the final weeks)
+                # and last of the source's own datasets: up to hundreds of
+                # page requests, so a block it provokes cannot cost the
+                # cheaper datasets above their one request each.
+                ingest_player_pages(session, run, settings, mode)
 
                 # The overall status stays "success" only when no dataset
                 # (including "market") ended "failed" — `not_published` and
@@ -484,12 +640,28 @@ def run_daily_refresh(run_id: int | None = None):
     return run
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
     """CLI entrypoint. Returns a process exit code: 0 only when the run
     finished with `status="success"`, 1 for `rejected`/`failed` (or any
     other non-success status) — so a shell caller (`make scrape`) can
-    detect failure without parsing stdout."""
-    result = run_daily_refresh()
+    detect failure without parsing stdout.
+
+    No flag runs the quick refresh; `--mine` adds the squad and watchlist
+    player pages, `--full` every due player page (mutually exclusive)."""
+    parser = argparse.ArgumentParser(prog="python -m scraper.run")
+    group = parser.add_mutually_exclusive_group()
+    group.add_argument(
+        "--mine", action="store_const", const="mine", dest="mode",
+        help="also fetch the player pages of the squad and watchlist",
+    )
+    group.add_argument(
+        "--full", action="store_const", const="complete", dest="mode",
+        help="also fetch every due player page, up to the request budget",
+    )
+    parser.set_defaults(mode="quick")
+    args = parser.parse_args(argv)
+
+    result = run_daily_refresh(mode=args.mode)
     print(f"Scrape run {result.id} finished with status={result.status!r}, rows={result.row_count}")
     return 0 if result.status == "success" else 1
 

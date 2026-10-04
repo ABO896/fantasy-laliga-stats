@@ -61,6 +61,27 @@ def test_trigger_schedules_run(client, session, engine):
     assert run.status in ("success", "rejected", "failed")
 
 
+def test_trigger_with_mode_schedules_run_daily_refresh_with_that_mode(client, session):
+    """`?mode=complete` is stored on the started run row and forwarded to
+    `run_daily_refresh` — mocked here so the test only checks the wiring,
+    not the pipeline itself (that's `test_trigger_schedules_run` above)."""
+    with patch("api.routes.health.run_daily_refresh") as mock_refresh:
+        response = client.post("/api/scrape/trigger", params={"mode": "complete"})
+
+    assert response.status_code == 202
+    run_id = response.json()["scrapeRunId"]
+    mock_refresh.assert_called_once_with(run_id=run_id, mode="complete")
+
+    run = session.get(ScrapeRun, run_id)
+    session.refresh(run)
+    assert run.mode == "complete"
+
+
+def test_trigger_rejects_unknown_mode(client):
+    response = client.post("/api/scrape/trigger", params={"mode": "bogus"})
+    assert response.status_code == 422
+
+
 def test_trigger_is_single_flight(client, session):
     running = ScrapeRun(started_at=datetime.now(UTC), status="running")
     session.add(running)

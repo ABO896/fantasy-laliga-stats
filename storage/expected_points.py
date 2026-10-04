@@ -67,7 +67,7 @@ def _stored_weeks(session: Session, season: int) -> list[tuple[int, bool]]:
 
 
 def select_target(session: Session, now: datetime, season: int) -> Target:
-    fixtures = session.exec(select(Fixture)).all()
+    fixtures = session.exec(select(Fixture).where(Fixture.season_year == season)).all()
     by_jornada: dict[int, list[Fixture]] = defaultdict(list)
     for f in fixtures:
         f.kickoff_utc = as_utc(f.kickoff_utc)
