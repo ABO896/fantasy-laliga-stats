@@ -167,6 +167,11 @@ def test_track_record_and_source_comparison(session):
     assert len(listing["predictions"]) == 2
 
 
+def test_track_record_payload_rejects_unknown_model_version(session):
+    with pytest.raises(ValueError, match="bogus"):
+        track_record_payload(session, model_version="bogus")
+
+
 def _v2_score(history, position, prior=None):
     a, c = xp.RATE_ONLY[position]
     return round(100 * max(0.0, a * xp.points_rate(history, prior, position).value + c) / 10, 1)

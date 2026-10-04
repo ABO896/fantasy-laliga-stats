@@ -492,10 +492,15 @@ def _source_market_rows(session: Session):
 
 
 def track_record_payload(session: Session, model_version: str = mm.MODEL_VERSION) -> dict:
-    if model_version != mm.MODEL_VERSION:
+    if model_version == "market-v2":
         from storage.market_v2 import v2_track_record
 
         return v2_track_record(session)
+    if model_version != mm.MODEL_VERSION:
+        raise ValueError(
+            f"unknown model_version {model_version!r}; expected "
+            f"{mm.MODEL_VERSION!r} or 'market-v2'"
+        )
     preds = session.exec(
         select(MarketPrediction).where(MarketPrediction.model_version == model_version)
     ).all()

@@ -151,6 +151,41 @@ def test_days_with_outcomes_are_never_rewritten(session):
     assert row2.predicted_pct == 999.0
 
 
+def test_regenerate_today_branch_rewrites_only_the_latest_day(session):
+    """When `today` equals the latest day in `PlayerMarketDaily` (the live
+    case `test_days_with_outcomes_are_never_rewritten` deliberately avoids by
+    using a `today` far past the data window), refresh_market_v2 deletes and
+    regenerates only that day's rows every call — never a day whose 7-day
+    outcome is already known — and the total row count stays stable."""
+    _players, riser, _faller = _seed_all(session)
+    live_today = DAYS[-1]
+    now = datetime.combine(live_today, datetime.min.time(), tzinfo=UTC)
+
+    refresh_market_v2(session, today=live_today, now=now)
+    first_count = len(_v2_preds(session))
+
+    older_day = D0 + timedelta(days=3)
+    assert older_day <= DAYS[-1] - timedelta(days=7)  # its 7-day outcome is known
+    older_row = session.get(MarketPrediction, (older_day, riser.id, m2.MODEL_VERSION))
+    older_row.predicted_pct = 777.0
+    session.add(older_row)
+
+    today_row = session.get(MarketPrediction, (live_today, riser.id, m2.MODEL_VERSION))
+    today_row.predicted_pct = 888.0
+    session.add(today_row)
+    session.commit()
+
+    refresh_market_v2(session, today=live_today, now=now)
+
+    assert len(_v2_preds(session)) == first_count
+
+    older_row_again = session.get(MarketPrediction, (older_day, riser.id, m2.MODEL_VERSION))
+    assert older_row_again.predicted_pct == 777.0
+
+    today_row_again = session.get(MarketPrediction, (live_today, riser.id, m2.MODEL_VERSION))
+    assert today_row_again.predicted_pct != 888.0
+
+
 def test_scoring_after_seven_days(session):
     _seed_all(session)
     refresh_market_v2(session, today=TODAY, now=NOW)
