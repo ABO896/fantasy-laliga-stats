@@ -101,3 +101,15 @@ def test_market_endpoints(session, client):
 def test_market_predictions_empty(client):
     body = client.get("/api/models/market/predictions").json()
     assert body["predictions"] == [] and body["madeOn"] is None
+
+
+def test_market_track_record_version_param(client):
+    assert client.get("/api/models/market/track-record").json()["modelVersion"] == "market-v1"
+
+    v2 = client.get("/api/models/market/track-record?version=market-v2")
+    assert v2.status_code == 200
+    body = v2.json()
+    assert body["modelVersion"] == "market-v2"
+    assert "naive" in body and "intervalCoverage" in body
+
+    assert client.get("/api/models/market/track-record?version=bogus").status_code == 422

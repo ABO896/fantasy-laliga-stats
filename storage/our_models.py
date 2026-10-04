@@ -491,9 +491,13 @@ def _source_market_rows(session: Session):
     ]
 
 
-def track_record_payload(session: Session) -> dict:
+def track_record_payload(session: Session, model_version: str = mm.MODEL_VERSION) -> dict:
+    if model_version != mm.MODEL_VERSION:
+        from storage.market_v2 import v2_track_record
+
+        return v2_track_record(session)
     preds = session.exec(
-        select(MarketPrediction).where(MarketPrediction.model_version == mm.MODEL_VERSION)
+        select(MarketPrediction).where(MarketPrediction.model_version == model_version)
     ).all()
     ours = mm.summarize(
         mm.ScoredCall(p.confidence, p.scoring, p.hit, p.retroactive, p.outcome_gap_days)

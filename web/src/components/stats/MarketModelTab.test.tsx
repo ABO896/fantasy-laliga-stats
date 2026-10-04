@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -112,6 +113,30 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     expect(await screen.findByText("Where we disagree with the source")).toBeInTheDocument();
     expect(await screen.findByText("Antony")).toBeInTheDocument();
     expect(screen.getByText("disagree")).toBeInTheDocument();
+  });
+
+  it("switches to the v2 7-day track record on toggle, and fetches it by version", async () => {
+    vi.mocked(fetchTrackRecord).mockImplementation((version: string = "market-v1") =>
+      Promise.resolve(
+        version === "market-v2"
+          ? {
+              modelVersion: "market-v2",
+              ours: { live: bucket(0, 0), retroactive: bucket(50, 40) },
+              intervalCoverage: 0.82,
+              mae: 1.2,
+              naive: { rule: "next week repeats last week", hitRate: 0.6, mae: 1.8 },
+            }
+          : record(bucket(0, 0, 556), bucket(6218, 5776)),
+      ),
+    );
+    renderTab();
+    await screen.findByText("Riser");
+
+    await userEvent.click(screen.getByText("v2 · 7-day"));
+
+    expect(await screen.findByText(/Interval coverage/)).toBeInTheDocument();
+    expect(screen.getAllByText(/next week repeats last week/).length).toBeGreaterThan(0);
+    expect(fetchTrackRecord).toHaveBeenCalledWith("market-v2");
   });
 });
 

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -5,9 +6,11 @@ import {
   fetchMarketPredictions,
   fetchTrackRecord,
   type MarketConfidence,
+  type MarketModelVersion,
   type MarketPredictionRow,
   type RecordBucket,
   type TrackRecordResponse,
+  type V1TrackRecordResponse,
 } from "../../api-client/market-model";
 import { formatEuroAbbreviated, formatPercent, formatShortDate } from "../../lib/format";
 import { formatRate, tierRecord } from "../../lib/marketRecord";
@@ -116,7 +119,7 @@ function BucketRow({ name, bucket }: { name: string; bucket: RecordBucket }) {
   );
 }
 
-function TrackRecord({ record }: { record: TrackRecordResponse }) {
+function TrackRecord({ record }: { record: V1TrackRecordResponse }) {
   return (
     <section className="flex flex-col gap-sm">
       <h3 className="section-title">Track record</h3>
@@ -182,6 +185,52 @@ function TrackRecord({ record }: { record: TrackRecordResponse }) {
         </table>
         </div>
       </details>
+    </section>
+  );
+}
+
+/** market-v2's track record: our hit rate (live/retroactive) beside the
+ * naive baseline's, and MAE/interval-coverage — a different report from
+ * v1's exact/interval confidence table, not a variant of it. */
+function V2TrackRecord({ record }: { record: TrackRecordResponse }) {
+  const mae = (v: number | null | undefined) => (v == null ? "—" : v.toFixed(2));
+  const pct = (v: number | null | undefined) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
+  return (
+    <section className="flex flex-col gap-sm">
+      <h3 className="section-title">Track record — v2 (7-day)</h3>
+      <p className="text-xs muted">
+        v2 predicts the change over the next 7 days; the naive baseline assumes next week repeats
+        last week.
+      </p>
+      <div className="table-scroll">
+        <table className="data-table compact">
+          <thead>
+            <tr>
+              <th />
+              <th className="num">Hit rate</th>
+              <th className="num">MAE</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <th scope="row">Ours (live)</th>
+              <td className="num">{formatRate(record.ours.live)}</td>
+              <td className="num">{mae(record.mae)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Ours (backtest)</th>
+              <td className="num">{formatRate(record.ours.retroactive)}</td>
+              <td className="num">{mae(record.mae)}</td>
+            </tr>
+            <tr>
+              <th scope="row">Naive — {record.naive?.rule ?? "next week repeats last week"}</th>
+              <td className="num">{pct(record.naive?.hitRate)}</td>
+              <td className="num">{mae(record.naive?.mae)}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs muted">Interval coverage: {pct(record.intervalCoverage)}</p>
     </section>
   );
 }
@@ -257,10 +306,44 @@ function Divergence() {
   );
 }
 
+const VERSION_LABEL: Record<MarketModelVersion, string> = {
+  "market-v1": "v1 · next update",
+  "market-v2": "v2 · 7-day",
+};
+
+function VersionToggle({
+  version,
+  onChange,
+}: {
+  version: MarketModelVersion;
+  onChange: (v: MarketModelVersion) => void;
+}) {
+  return (
+    <div className="segmented" role="group" aria-label="Track record model version">
+      {(Object.keys(VERSION_LABEL) as MarketModelVersion[]).map((v) => (
+        <button
+          key={v}
+          type="button"
+          aria-pressed={version === v}
+          className={`badge ${version === v ? "bg-[color:var(--color-accent)]/10 text-[color:var(--color-accent)]" : "muted"}`}
+          onClick={() => onChange(v)}
+        >
+          {VERSION_LABEL[v]}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 /** MODEL-01/03/04 on one tab: our predictions, how right they have been,
- * and where they part ways with the source's. */
+ * and where they part ways with the source's. The track record's version
+ * toggle switches between v1's next-update record and v2's 7-day one. */
 export default function MarketModelTab() {
-  const { data: record } = useQuery({ queryKey: ["market-track-record"], queryFn: fetchTrackRecord });
+  const [version, setVersion] = useState<MarketModelVersion>("market-v1");
+  const { data: record } = useQuery({
+    queryKey: ["market-track-record", version],
+    queryFn: () => fetchTrackRecord(version),
+  });
   return (
     <div className="flex flex-col gap-xl">
       <p className="state-note max-w-[70ch]">
@@ -269,8 +352,13 @@ export default function MarketModelTab() {
         changes, and fresh points. Prices are highly persistent, and this model is essentially
         persistence plus a nudge — what it adds is an honest confidence tier, not magic.
       </p>
-      <Predictions record={record} />
-      {record && <TrackRecord record={record} />}
+      <Predictions record={version === "market-v1" ? record : undefined} />
+      <VersionToggle version={version} onChange={setVersion} />
+      {record && (version === "market-v1" ? (
+        <TrackRecord record={record as V1TrackRecordResponse} />
+      ) : (
+        <V2TrackRecord record={record} />
+      ))}
       <Divergence />
     </div>
   );

@@ -53,6 +53,7 @@ from scraper.sources.analiticafantasy import fetch_pages, parse_page
 from scraper.sources.analiticafantasy_calendar import fetch_calendar, parse_calendar
 from storage.db import get_engine
 from storage.expected_points import refresh_expected_points
+from storage.market_v2 import refresh_market_v2
 from storage.models import Player, RawScrape, ScrapeRun
 from storage.our_models import refresh_market_predictions
 from storage.player_pages import (
@@ -405,24 +406,30 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
 
 
 def run_our_models(session, run) -> None:
-    """Generate and score our own market predictions (MODEL-01/03).
+    """Generate and score our own market predictions — v1 (MODEL-01/03) and
+    market-v2 (spec §4.4).
 
     Runs after every dataset ingest and after the run's status is settled,
     and swallows every exception: a model bug is recorded as a failed
     `market_model` dataset — visible on /health — but never fails the
     scrape, never changes the run's status, and never re-raises. Safe to
-    run after a failed market scrape too: it only fills dates that have no
-    predictions yet and never rewrites a prediction whose outcome exists.
+    run after a failed market scrape too: each refresh only fills
+    player-days that have no predictions yet and never rewrites a
+    prediction whose outcome exists.
     """
     dataset_run = start_dataset_run(session, run.id, "market_model")
     try:
-        summary = refresh_market_predictions(session)
+        a = refresh_market_predictions(session)
+        b = refresh_market_v2(session, date.today(), datetime.now(UTC))
         finish_dataset_run(
             session,
             dataset_run,
             "success",
-            row_count=summary.generated,
-            errors=[f"generated {summary.generated}, scored {summary.scored}"],
+            row_count=a.generated + b.generated,
+            errors=[
+                f"v1 generated {a.generated}, scored {a.scored}; "
+                f"v2 generated {b.generated}, scored {b.scored}"
+            ],
         )
     except Exception as exc:  # noqa: BLE001 — deliberately total, see docstring
         session.rollback()

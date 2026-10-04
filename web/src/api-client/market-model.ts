@@ -79,9 +79,28 @@ export interface TrackRecordDay {
   retroactive: boolean;
 }
 
+export interface NaiveBaseline {
+  rule: string;
+  hitRate: number | null;
+  mae: number | null;
+}
+
+/** market-v1's shape carries `days`/`source`; market-v2's carries
+ * `intervalCoverage`/`mae`/`naive` instead — the two track records are not
+ * the same report, just fetched through the same endpoint. */
 export interface TrackRecordResponse {
   modelVersion: string;
   ours: { live: RecordBucket; retroactive: RecordBucket };
+  days?: TrackRecordDay[];
+  source?: HitBucket & { oursOnSamePlayers: HitBucket };
+  intervalCoverage?: number | null;
+  mae?: number | null;
+  naive?: NaiveBaseline;
+}
+
+/** market-v1's shape, with `days`/`source` always present — what
+ * `fetchTrackRecord("market-v1")` actually returns. */
+export interface V1TrackRecordResponse extends TrackRecordResponse {
   days: TrackRecordDay[];
   source: HitBucket & { oursOnSamePlayers: HitBucket };
 }
@@ -109,8 +128,12 @@ export function fetchMarketPredictions(): Promise<MarketPredictionsResponse> {
   return apiFetch<MarketPredictionsResponse>("/models/market/predictions");
 }
 
-export function fetchTrackRecord(): Promise<TrackRecordResponse> {
-  return apiFetch<TrackRecordResponse>("/models/market/track-record");
+export type MarketModelVersion = "market-v1" | "market-v2";
+
+export function fetchTrackRecord(
+  version: MarketModelVersion = "market-v1",
+): Promise<TrackRecordResponse> {
+  return apiFetch<TrackRecordResponse>(`/models/market/track-record?version=${version}`);
 }
 
 export function fetchDivergence(): Promise<DivergenceResponse> {
