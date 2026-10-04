@@ -46,8 +46,8 @@ class Settings(BaseSettings):
     #: The hour (Europe/Madrid) the source's daily market update has
     #: typically landed by, used to compute `expected_last_day`.
     market_update_hour: int = 8
-    #: How long a just-created player can go without a page fetch before a
-    #: complete refresh treats his missing page as stale rather than new.
+    #: Age in days of the last successful Complete refresh after which
+    #: Health suggests running another.
     complete_refresh_stale_days: int = 3
     #: Below this many fixtures the calendar parse is rejected. The window
     #: normally holds 50 (five jornadas of ten).

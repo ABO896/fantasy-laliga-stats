@@ -114,12 +114,15 @@ def get_health(session: SessionDep):
     }
 
     # Nothing to trust yet, the last complete run is too old to still
-    # reflect reality, or the coverage snapshot itself already shows gaps —
-    # any one of the three is reason enough to suggest a complete refresh.
+    # reflect reality, or some player was never fetched or is missing a
+    # finished week's match — any one is reason enough to suggest a complete
+    # refresh. `withGaps` deliberately plays no part: it also counts the
+    # ordinary one-day price lag every morning, which a complete refresh
+    # is not needed for and must not nag about.
     stale_complete = last_complete_run is None or as_utc(
         last_complete_run.started_at
     ) < now - timedelta(days=settings.complete_refresh_stale_days)
-    suggest_complete = stale_complete or page_coverage["withGaps"] > 0
+    suggest_complete = stale_complete or page_coverage["withMatchGaps"] > 0
 
     return {
         "lastSuccessfulRun": _run_to_dto(last_success) if last_success else None,

@@ -8,9 +8,17 @@ condition that let the 2026-08-10 outage run eleven days unnoticed.
 from datetime import UTC, datetime, timedelta
 from zoneinfo import ZoneInfo
 
+from sqlmodel import select
+
 from core.config import get_settings
 from core.player_pages import expected_last_day
-from storage.models import Player, PlayerMarketDaily, PlayerSnapshot, ScrapeRun
+from storage.models import (
+    Player,
+    PlayerMarketDaily,
+    PlayerPageFetch,
+    PlayerSnapshot,
+    ScrapeRun,
+)
 from storage.repository import finish_dataset_run, start_dataset_run
 
 
@@ -78,6 +86,7 @@ def test_health_suggests_complete_refresh_on_an_empty_db(client):
         "players": 0,
         "complete": 0,
         "withGaps": 0,
+        "withMatchGaps": 0,
         "oldestLastDay": None,
     }
 
@@ -122,6 +131,7 @@ def test_health_does_not_suggest_complete_after_a_recent_full_coverage_run(sessi
             scrape_run_id=complete_run.id,
         )
     )
+    session.add(PlayerPageFetch(player_id=player.id, fetched_at=now, status="ok"))
     session.commit()
 
     body = client.get("/api/health").json()
@@ -131,6 +141,79 @@ def test_health_does_not_suggest_complete_after_a_recent_full_coverage_run(sessi
         "players": 1,
         "complete": 1,
         "withGaps": 0,
+        "withMatchGaps": 0,
         "oldestLastDay": expected.isoformat(),
     }
     assert body["suggestComplete"] is False
+
+
+def _recent_complete_run_with_one_player(session, last_day, fetched: bool):
+    now = datetime.now(UTC)
+    run = ScrapeRun(
+        started_at=now - timedelta(minutes=5), finished_at=now - timedelta(minutes=1),
+        status="success", mode="complete",
+    )
+    session.add(run)
+    session.commit()
+    session.refresh(run)
+    player = _player(session)
+    session.add(
+        PlayerSnapshot(
+            as_of=now.date(), player_id=player.id, market_value=1_000_000, points=0,
+            availability_status="available", raw_fields="{}", scrape_run_id=run.id,
+        )
+    )
+    session.add(
+        PlayerMarketDaily(
+            season_year=get_settings().current_season_year, day=last_day,
+            player_id=player.id, market_value=1_000_000, scrape_run_id=run.id,
+        )
+    )
+    if fetched:
+        session.add(PlayerPageFetch(player_id=player.id, fetched_at=now, status="ok"))
+    session.commit()
+
+
+def _after_update_hour(monkeypatch):
+    """Pin the market update hour to midnight so it is always past it:
+    `expected` is today (Madrid) and yesterday is a one-day lag."""
+    settings = get_settings().model_copy(update={"market_update_hour": 0})
+    monkeypatch.setattr("api.routes.health.get_settings", lambda: settings)
+    return datetime.now(UTC).astimezone(ZoneInfo("Europe/Madrid")).date()
+
+
+def test_a_one_day_price_lag_alone_does_not_suggest_complete(session, client, monkeypatch):
+    """Every morning after the market update each player is one day behind
+    until the next fetch. That lag shows in `withGaps` but must not nag:
+    with a recent complete run and no match gaps, no suggestion."""
+    today = _after_update_hour(monkeypatch)
+    _recent_complete_run_with_one_player(session, today - timedelta(days=1), fetched=True)
+
+    body = client.get("/api/health").json()
+    assert body["playerPages"]["withGaps"] == 1
+    assert body["playerPages"]["withMatchGaps"] == 0
+    assert body["suggestComplete"] is False
+
+
+def test_a_never_fetched_player_suggests_complete(session, client, monkeypatch):
+    today = _after_update_hour(monkeypatch)
+    _recent_complete_run_with_one_player(session, today, fetched=False)
+
+    body = client.get("/api/health").json()
+    assert body["playerPages"]["withMatchGaps"] == 1
+    assert body["suggestComplete"] is True
+
+
+def test_an_old_complete_run_suggests_complete(session, client, monkeypatch):
+    today = _after_update_hour(monkeypatch)
+    _recent_complete_run_with_one_player(session, today, fetched=True)
+    old = session.exec(select(ScrapeRun)).one()
+    old.started_at = datetime.now(UTC) - timedelta(
+        days=get_settings().complete_refresh_stale_days + 1
+    )
+    session.add(old)
+    session.commit()
+
+    body = client.get("/api/health").json()
+    assert body["playerPages"]["withMatchGaps"] == 0
+    assert body["suggestComplete"] is True
