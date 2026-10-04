@@ -33,7 +33,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
     hoursSinceLastSuccess: 5,
     marketUpdatedAt: "2026-08-22T00:15:00+02:00",
     recentRuns: [],
-    playerPages: { players: 556, complete: 540, withGaps: 16, oldestLastDay: null },
+    playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: null },
     suggestComplete: false,
     ...overrides,
   };

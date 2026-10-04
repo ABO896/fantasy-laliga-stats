@@ -22,6 +22,9 @@ export interface PlayerPagesCoverage {
   players: number;
   complete: number;
   withGaps: number;
+  /** Never fetched, or missing a finished week's match row — the gaps a
+   * complete refresh exists to fix (unlike the one-day price lag). */
+  withMatchGaps: number;
   oldestLastDay: string | null;
 }
 
@@ -40,8 +43,8 @@ export interface HealthResponse {
   recentRuns: ScrapeRunDto[];
   playerPages: PlayerPagesCoverage;
   /** Server-computed judgement call: a `complete` refresh is worth
-   * running — the last one is stale, missing entirely, or the current
-   * coverage snapshot already shows gaps. */
+   * running — the last one is stale, missing entirely, or some player
+   * has match gaps (`playerPages.withMatchGaps`). */
   suggestComplete: boolean;
 }
 

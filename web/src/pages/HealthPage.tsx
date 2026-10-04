@@ -31,7 +31,13 @@ export default function HealthPage() {
   const hoursSinceLastSuccess = data?.hoursSinceLastSuccess ?? null;
   const isStale = data?.isStale ?? false;
   const recentRuns = data?.recentRuns ?? [];
-  const playerPages = data?.playerPages ?? { players: 0, complete: 0, withGaps: 0, oldestLastDay: null };
+  const playerPages = data?.playerPages ?? {
+    players: 0,
+    complete: 0,
+    withGaps: 0,
+    withMatchGaps: 0,
+    oldestLastDay: null,
+  };
 
   return (
     <div className="flex max-w-[56rem] flex-col gap-lg">
@@ -68,9 +74,17 @@ export default function HealthPage() {
               : "Never run"}
           </p>
         </div>
-        <p className="state-note">
-          {`${playerPages.complete} of ${playerPages.players} players complete`}
-        </p>
+        <div className="flex flex-wrap items-center gap-md">
+          <p className="state-note">
+            {`${playerPages.complete} of ${playerPages.players} players complete`}
+          </p>
+          {playerPages.oldestLastDay !== null && (
+            <p className="state-note">{`oldest data: ${playerPages.oldestLastDay}`}</p>
+          )}
+          {playerPages.withMatchGaps > 0 && (
+            <p className="state-note">{`${playerPages.withMatchGaps} with missing matches`}</p>
+          )}
+        </div>
       </section>
 
       <section className="panel p-lg">

@@ -37,7 +37,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
     hoursSinceLastSuccess: 5,
     marketUpdatedAt: "2026-08-22T00:15:00+02:00",
     recentRuns: [buildRun({ id: 1 })],
-    playerPages: { players: 556, complete: 540, withGaps: 16, oldestLastDay: "2026-08-20" },
+    playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: "2026-08-20" },
     suggestComplete: false,
     ...overrides,
   };
@@ -190,13 +190,28 @@ describe("HealthPage", () => {
   it("renders last complete refresh and player-page coverage", async () => {
     mockHealth(
       buildHealth({
-        playerPages: { players: 556, complete: 540, withGaps: 16, oldestLastDay: "2026-08-20" },
+        playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: "2026-08-20" },
       }),
     );
     renderWithClient();
 
     expect(screen.getByText("Last complete refresh")).toBeInTheDocument();
     expect(await screen.findByText("540 of 556 players complete")).toBeInTheDocument();
+    expect(screen.getByText("oldest data: 2026-08-20")).toBeInTheDocument();
+    expect(screen.getByText("3 with missing matches")).toBeInTheDocument();
+  });
+
+  it("hides oldest data and missing matches when there is nothing to show", async () => {
+    mockHealth(
+      buildHealth({
+        playerPages: { players: 0, complete: 0, withGaps: 0, withMatchGaps: 0, oldestLastDay: null },
+      }),
+    );
+    renderWithClient();
+
+    expect(await screen.findByText("0 of 0 players complete")).toBeInTheDocument();
+    expect(screen.queryByText(/oldest data/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/with missing matches/)).not.toBeInTheDocument();
   });
 
   it("status_badge_colors", async () => {
