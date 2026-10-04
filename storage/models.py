@@ -471,3 +471,8 @@ class PlayerPageFetch(SQLModel, table=True):
     fetched_at: datetime
     status: str  # ok | gap
     error: str | None = None
+    #: The highest finished current-season week when the last *ok* fetch
+    #: ran. That page is authoritative for every week up to it: a week it
+    #: had no row for (injured, unregistered) is not a gap. A gap fetch
+    #: leaves it unchanged.
+    weeks_checked_through: int | None = None

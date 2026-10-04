@@ -14,6 +14,7 @@ from scraper.errors import ScrapeBlocked, ScrapeNotPublished
 from scraper.run import ingest_player_pages
 from storage.models import (
     Player,
+    PlayerGameweekPoints,
     PlayerMarketDaily,
     PlayerMatchStats,
     PlayerPageFetch,
@@ -21,6 +22,7 @@ from storage.models import (
     ScrapeRun,
     SquadMember,
 )
+from storage.player_pages import build_candidates, coverage
 from storage.repository import (
     add_to_watchlist,
     finish_dataset_run,
@@ -28,6 +30,7 @@ from storage.repository import (
     start_dataset_run,
 )
 from tests.scraper.player_page_html import html_with_payload, minimal_player_page
+from tests.storage.helpers import seed_fixture
 
 NOW = datetime(2026, 9, 2, 12, 0, tzinfo=UTC)  # 14:00 Madrid, after the 08:00 update
 SETTINGS = Settings(current_season_year=2026)
@@ -291,6 +294,80 @@ def test_a_block_on_another_source_or_a_non_block_failure_does_not_skip(session,
 
     assert len(fetch.calls) == 3
     assert _dataset(session, run).status == "success"
+
+
+def _finish_week(session, run, week: int, n: int = 5) -> None:
+    """Make `week` a finished jornada Sevilla FC played: every seeded player
+    has a jornada row and the calendar has eight final fixtures for it."""
+    for pid in range(1, n + 1):
+        session.add(
+            PlayerGameweekPoints(
+                season_year=2026, week=week, player_id=pid, points=2,
+                is_provisional=False, scrape_run_id=run.id,
+            )
+        )
+    session.commit()
+    for i in range(8):
+        seed_fixture(
+            session, week * 100 + i, matchday=week,
+            kickoff=datetime(2026, 8, 1, tzinfo=UTC) + timedelta(days=week),
+            final=True, season_year=2026,
+        )
+
+
+def _page_with_weeks(weeks: list[int]) -> str:
+    """A current page (day 2026-09-02) carrying match rows only for `weeks`."""
+    return html_with_payload(
+        {
+            "marketHistory": [
+                {"day": 1, "date": "2026-09-02", "marketValue": 1_000_000, "delta": 0},
+            ],
+            "statsRows": [
+                {"week": w, "points": 2, "minutes": 90, "stats": {}} for w in weeks
+            ],
+        }
+    )
+
+
+def test_an_ok_page_is_authoritative_for_weeks_final_when_it_ran(session, monkeypatch):
+    """A page lacking a row for a finished week his club played (injured,
+    unregistered) must not leave that week a gap forever: the ok fetch
+    covered every week already final, so he is neither re-fetched nor
+    counted as a gap until a newer week finishes."""
+    run = _seed(session, n=5)
+    for week in (1, 2, 3):
+        _finish_week(session, run, week)
+    session.add(SquadMember(player_id=1, purchase_price=1_000_000, acquired_on=date(2026, 8, 1)))
+    session.commit()
+
+    class Fetcher(_Fetcher):
+        def __call__(self, slug, settings=None):
+            self.calls.append(slug)
+            return _page_with_weeks([1, 2])
+
+    fetch = Fetcher()
+    monkeypatch.setattr("scraper.run.fetch_player_page", fetch)
+
+    ingest_player_pages(session, run, SETTINGS, mode="mine", now=NOW)
+    assert fetch.calls == ["player-1"]
+    assert session.get(PlayerPageFetch, 1).weeks_checked_through == 3
+
+    later = NOW + timedelta(minutes=5)
+    fetch.calls.clear()
+    ingest_player_pages(session, run, SETTINGS, mode="mine", now=later)
+    assert fetch.calls == []
+
+    [cand] = build_candidates(session, 2026, later, [1])
+    assert cand.missing_weeks == frozenset()
+    cov = coverage(session, 2026, date(2026, 9, 2), later)
+    assert cov["complete"] == 1  # player 1; 2..5 were never fetched
+    assert cov["withMatchGaps"] == 4
+
+    _finish_week(session, run, 4)
+    fetch.calls.clear()
+    ingest_player_pages(session, run, SETTINGS, mode="mine", now=later + timedelta(minutes=5))
+    assert fetch.calls == ["player-1"]
+    assert session.get(PlayerPageFetch, 1).weeks_checked_through == 4
 
 
 def _offline_refresh(monkeypatch, tmp_path) -> list[str]:

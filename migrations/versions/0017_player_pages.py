@@ -58,6 +58,7 @@ def upgrade() -> None:
         sa.Column('fetched_at', sa.DateTime(), nullable=False),
         sa.Column('status', sqlmodel.sql.sqltypes.AutoString(), nullable=False),
         sa.Column('error', sqlmodel.sql.sqltypes.AutoString(), nullable=True),
+        sa.Column('weeks_checked_through', sa.Integer(), nullable=True),
         sa.ForeignKeyConstraint(['player_id'], ['player.id'], ),
         sa.PrimaryKeyConstraint('player_id'),
     )

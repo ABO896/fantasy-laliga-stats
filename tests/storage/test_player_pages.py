@@ -14,6 +14,7 @@ from storage.models import (
     PlayerGameweekPoints,
     PlayerMarketDaily,
     PlayerMatchStats,
+    PlayerPageFetch,
     PlayerSnapshot,
     ScrapeRun,
     SquadMember,
@@ -246,6 +247,7 @@ def test_coverage_counts_complete_and_gapped(session):
         "players": 3,
         "complete": 1,
         "withGaps": 2,
+        "withMatchGaps": 3,
         "oldestLastDay": date(2026, 9, 1),
     }
 
@@ -287,9 +289,88 @@ def test_record_fetch_round_trips_status_and_error(session):
     assert stored.fetched_at.replace(tzinfo=UTC) == later
 
 
+def test_a_gap_fetch_keeps_weeks_checked_through(session):
+    from storage.models import PlayerPageFetch
+
+    make_player(session, 1)
+    record_fetch(session, 1, datetime(2026, 9, 1, tzinfo=UTC), "ok", weeks_checked_through=3)
+    record_fetch(session, 1, datetime(2026, 9, 2, tzinfo=UTC), "gap", error="404",
+                 weeks_checked_through=5)
+    session.expire_all()
+    stored = session.get(PlayerPageFetch, 1)
+    assert stored.status == "gap"
+    assert stored.weeks_checked_through == 3
+
+
+def _sevilla_week(session, run, week: int, have: tuple[int, ...] = ()) -> None:
+    """Finish `week` for Sevilla FC (players 1..5 have jornada rows, eight
+    final fixtures); players in `have` also get a match-stats row."""
+    for pid in range(1, 6):
+        session.add(
+            PlayerGameweekPoints(
+                season_year=SEASON, week=week, player_id=pid, points=5,
+                is_provisional=False, scrape_run_id=run.id,
+            )
+        )
+    for pid in have:
+        session.add(
+            PlayerMatchStats(
+                season_year=SEASON, week=week, player_id=pid, minutes=90, points=5,
+                appearance="start", components="{}", scrape_run_id=run.id,
+            )
+        )
+    session.commit()
+    for i in range(8):
+        seed_fixture(
+            session, week * 100 + i, matchday=week,
+            kickoff=datetime(2026, 8, 10 + week, tzinfo=UTC), final=True, season_year=SEASON,
+        )
+
+
+def test_missing_weeks_ignore_weeks_an_ok_fetch_already_covered(session):
+    run = make_run(session)
+    for pid in range(1, 6):
+        make_player(session, pid)
+    _sevilla_week(session, run, 1, have=(1,))
+    _sevilla_week(session, run, 2)  # player 1's page had no week-2 row
+    now = datetime(2026, 9, 1, tzinfo=UTC)
+    record_fetch(session, 1, now, "ok", weeks_checked_through=2)
+
+    [c] = build_candidates(session, SEASON, now, [1])
+    assert c.missing_weeks == frozenset()
+
+    _sevilla_week(session, run, 3)
+    [c] = build_candidates(session, SEASON, now, [1])
+    assert c.missing_weeks == frozenset({3})
+
+
+def test_coverage_counts_match_gaps_separately(session):
+    """`withMatchGaps`: never fetched, or a finished week still missing. A
+    player merely a day behind on market values is not a match gap."""
+    run = make_run(session)
+    for pid in range(1, 6):
+        make_player(session, pid)
+    for pid in (1, 2, 3):
+        _snapshot(session, run, pid, date(2026, 9, 7))
+    _sevilla_week(session, run, 1, have=(1, 2))
+    now = datetime(2026, 9, 10, tzinfo=UTC)
+    for pid in (1, 2, 3):
+        _daily(session, run, pid, date(2026, 9, 4))  # one day behind expected
+    session.commit()
+    record_fetch(session, 1, now, "ok", weeks_checked_through=1)
+    record_fetch(session, 2, now, "ok", weeks_checked_through=None)
+    # player 3: never fetched
+
+    result = coverage(session, SEASON, date(2026, 9, 5), now)
+    assert result["withGaps"] == 3
+    assert result["withMatchGaps"] == 1
+
+
 def test_migration_matches_the_models(engine):
     market_cols = {c["name"] for c in sa.inspect(engine).get_columns("playermarketdaily")}
     assert market_cols == set(PlayerMarketDaily.model_fields)
+    fetch_cols = {c["name"] for c in sa.inspect(engine).get_columns("playerpagefetch")}
+    assert fetch_cols == set(PlayerPageFetch.model_fields)
     match_cols = {c["name"] for c in sa.inspect(engine).get_columns("playermatchstats")}
     assert match_cols == set(PlayerMatchStats.model_fields)
     run_cols = {c["name"] for c in sa.inspect(engine).get_columns("scraperun")}

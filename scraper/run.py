@@ -57,6 +57,7 @@ from storage.models import Player, RawScrape, ScrapeRun
 from storage.our_models import refresh_market_predictions
 from storage.player_pages import (
     build_candidates,
+    max_finished_week,
     my_player_ids,
     record_fetch,
     upsert_player_page,
@@ -359,6 +360,7 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
 
     expected = expected_last_day(now.astimezone(MADRID), settings.market_update_hour)
     candidates = build_candidates(session, season, now, scope)
+    checked_through = max_finished_week(session, season, now)
     due = select_players(candidates, expected, now, settings.player_pages_sweep_days, None)
     selected = due if budget is None else due[:budget]
 
@@ -381,7 +383,7 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
             record_fetch(session, player_id, now, "gap", error)
             continue
         days, matches = upsert_player_page(session, season, player_id, page, run.id)
-        record_fetch(session, player_id, now, "ok")
+        record_fetch(session, player_id, now, "ok", weeks_checked_through=checked_through)
         written += days + matches
 
     notes = [f"fetched {attempted} of {len(due)} due"]
