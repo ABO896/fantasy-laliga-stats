@@ -36,6 +36,7 @@ from core.reliability import (
     RELIABLE_CLASSES,
     ClubMatch,
     Evidence,
+    Prior,
     Reliability,
     evidence,
     position_priors,
@@ -104,10 +105,12 @@ class PlayerInputs:
     position: str
     team: str
     price: int | None
+    price_as_of: date | None  # the date the price was captured/published
     availability: str
     power_inputs: an.PowerInputs | None
     power: an.PowerResult | None
     reliability: Reliability
+    prior: Prior  # the position prior reliability shrunk toward
     evidence: Evidence
     xpts: WindowXp | None
     replacement: float | None
@@ -121,17 +124,22 @@ class PlayerInputs:
     ranks: dict[str, Rank]  # keys: power, pointsValue, outlook, xpts, start, price
 
 
-def _state(data: InputsData, pid: int, as_of: date) -> tuple[SnapshotState | None, int | None]:
+def _state(
+    data: InputsData, pid: int, as_of: date
+) -> tuple[SnapshotState | None, int | None, date | None]:
     snap = None
     for s in data.snapshots.get(pid, []):
         if s.as_of <= as_of and (snap is None or s.as_of >= snap.as_of):
             snap = s
     days = [d for d in data.prices.get(pid, {}) if d <= as_of]
     if days:
-        price = data.prices[pid][max(days)]
+        price_as_of = max(days)
+        price = data.prices[pid][price_as_of]
+    elif snap is not None:
+        price, price_as_of = snap.market_value, snap.as_of
     else:
-        price = snap.market_value if snap is not None else None
-    return snap, price
+        price, price_as_of = None, None
+    return snap, price, price_as_of
 
 
 def _percentile(values: Sequence[float], pct: float) -> float:
@@ -216,7 +224,7 @@ def compute_inputs(
     window = an.FORM_WINDOW + an.BASELINE_WINDOW
     partial: dict[int, dict] = {}
     for pid, base in data.players.items():
-        snap, price = _state(data, pid, as_of)
+        snap, price, price_as_of = _state(data, pid, as_of)
         if snap is None and price is None:
             continue
         availability = snap.availability if snap is not None else "available"
@@ -244,9 +252,9 @@ def compute_inputs(
             if p_inputs is not None and len(history) >= VS_EXPECTED_MATCHES
             else None
         )
-        partial[pid] = dict(base=base, price=price, availability=availability,
-                            p_inputs=p_inputs, power=power, rel=rel, ev=ev, xpts=xpts,
-                            vs_expected=vs_expected)
+        partial[pid] = dict(base=base, price=price, price_as_of=price_as_of,
+                            availability=availability, p_inputs=p_inputs, power=power, rel=rel,
+                            prior=prior, ev=ev, xpts=xpts, vs_expected=vs_expected)
 
     replacement = _replacement_levels(partial)
 
@@ -277,10 +285,12 @@ def compute_inputs(
             position=base.position,
             team=base.team,
             price=price,
+            price_as_of=p["price_as_of"],
             availability=p["availability"],
             power_inputs=p["p_inputs"],
             power=p["power"],
             reliability=p["rel"],
+            prior=p["prior"],
             evidence=ev,
             xpts=xpts,
             replacement=repl,

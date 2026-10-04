@@ -73,6 +73,10 @@ class Outlook:
     drop_risk: bool
     basis: str  # ridge | ridge-pooled | persistence
     terms: dict[str, float]
+    #: The day the prediction was made, when a caller knows it (storage
+    #: reconstructs it from the stored row); `None` from a bare `predict()`
+    #: call, which has no notion of "when" — core stays clockless.
+    made_on: date | None = None
 
 
 def price_change_pct(values: Mapping[date, int], day: date, days: int) -> float | None:

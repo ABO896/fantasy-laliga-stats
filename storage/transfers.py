@@ -95,11 +95,14 @@ def last_successes(session: Session) -> dict[str, datetime | None]:
     return out
 
 
-def _fixture_outlooks(session: Session, season: int, n: int, now: datetime):
+def fixture_outlooks(session: Session, season: int, n: int, now: datetime):
     """Per team, the fixtures to weigh in the window, and the window's
     jornadas. A team the calendar knows but with nothing in the window gets
     an empty list (a genuine blank); a team the calendar has never named is
-    left out, so its players read as "no fixture data", not as a blank."""
+    left out, so its players read as "no fixture data", not as a blank.
+
+    Shared with `storage.inputs.compute_live_inputs` (Plan B Task 6), which
+    feeds the per-team multiplier straight into `core.inputs.compute_inputs`."""
     rows = get_fixtures(session, season)
     views = [
         FixtureView(r.fixture_id, r.matchday, r.kickoff_utc, r.kickoff_confirmed, r.is_final,
@@ -117,6 +120,10 @@ def _fixture_outlooks(session: Session, season: int, n: int, now: datetime):
     per_team = {team: [] for team in known}
     per_team.update({t.team: t.fixtures for t in ranked})
     return per_team, window, True
+
+
+#: Pre-rename alias for `build_context`, this module's existing caller.
+_fixture_outlooks = fixture_outlooks
 
 
 def build_context(

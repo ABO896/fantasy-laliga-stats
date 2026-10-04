@@ -370,6 +370,7 @@ def latest_outlooks(session: Session, on: date | None = None) -> dict[int, m2.Ou
             drop_risk=inputs.get("dropRisk", False),
             basis=inputs.get("basis", ""),
             terms=inputs.get("terms", {}),
+            made_on=made_on,
         )
     return out
 
