@@ -84,12 +84,15 @@ describe("PlayerTable (uncontrolled)", () => {
   });
 });
 
-describe("PlayerTable — Power and Economy columns (ANALYTICS-06/07)", () => {
-  it("renders both scores rounded and sorts by Power with nulls last", () => {
+describe("PlayerTable — Power column and position rank (ANALYTICS-06, Task 7)", () => {
+  it("renders the score and rank, and sorts by Power with nulls last", () => {
     const players = [
-      buildPlayer({ playerId: 1, name: "Middling", powerScore: 41.6, economyScore: 12.2 }),
-      buildPlayer({ playerId: 2, name: "No Data", powerScore: null, economyScore: null }),
-      buildPlayer({ playerId: 3, name: "Star", powerScore: 88.4, economyScore: 97 }),
+      buildPlayer({ playerId: 1, name: "Middling", powerScore: 41.6, powerRank: { rank: 30, of: 61 } }),
+      buildPlayer({ playerId: 2, name: "No Data", powerScore: null, powerRank: null }),
+      buildPlayer({
+        playerId: 3, name: "Star", powerScore: 88.4,
+        powerRank: { rank: 2, of: 61 }, position: "DEF",
+      }),
     ];
 
     render(
@@ -110,10 +113,105 @@ describe("PlayerTable — Power and Economy columns (ANALYTICS-06/07)", () => {
       "Middling",
       "No Data",
     ]);
-    expect(within(rows[0]!).getByText("88")).toBeInTheDocument();
-    expect(within(rows[0]!).getByText("97")).toBeInTheDocument();
+    const powerCell = within(rows[0]!).getByTitle("#2 of 61 DEF by Power");
+    expect(powerCell.textContent).toBe("88 · #2");
     expect(within(table).getByText("Power")).toBeInTheDocument();
-    expect(within(table).getByText("Economy")).toBeInTheDocument();
+  });
+
+  it("has no Economy column any more — it moved to the transfers page only", () => {
+    const players = [buildPlayer({ playerId: 1, name: "Any", economyScore: 50 })];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable players={players} columnFilters={[]} />
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByText("Economy")).not.toBeInTheDocument();
+  });
+});
+
+describe("PlayerTable — Value column (Task 7, points value percentile)", () => {
+  it("renders the percentile and sorts with nulls last", () => {
+    const players = [
+      buildPlayer({ playerId: 1, name: "Mid Value", pointsValuePct: 40 }),
+      buildPlayer({ playerId: 2, name: "No Value", pointsValuePct: null }),
+      buildPlayer({ playerId: 3, name: "Best Value", pointsValuePct: 92 }),
+    ];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable
+          players={players}
+          columnFilters={[]}
+          sorting={[{ id: "pointsValuePct", desc: true }]}
+          onSortingChange={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual([
+      "Best Value",
+      "Mid Value",
+      "No Value",
+    ]);
+    expect(within(rows[0]!).getByText("92")).toBeInTheDocument();
+    expect(within(table).getByText("Value")).toBeInTheDocument();
+  });
+});
+
+describe("PlayerTable — Plays column (Task 7, reliability class sorted by pStart)", () => {
+  it("renders the reliability class and sorts by pStart with nulls last", () => {
+    const players = [
+      buildPlayer({ playerId: 1, name: "Rotation Guy", reliabilityClass: "Rotation", pStart: 0.3 }),
+      buildPlayer({ playerId: 2, name: "Unknown", reliabilityClass: null, pStart: null }),
+      buildPlayer({ playerId: 3, name: "Nailed On", reliabilityClass: "Nailed", pStart: 0.95 }),
+    ];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable
+          players={players}
+          columnFilters={[]}
+          sorting={[{ id: "reliabilityClass", desc: true }]}
+          onSortingChange={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual([
+      "Nailed On",
+      "Rotation Guy",
+      "Unknown",
+    ]);
+    expect(within(rows[0]!).getByText("Nailed")).toBeInTheDocument();
+    expect(within(table).getByText("Plays")).toBeInTheDocument();
+  });
+});
+
+describe("PlayerTable — 7d outlook column (Task 7)", () => {
+  it("renders a signed percentage and marks drop risk in red", () => {
+    const players = [
+      buildPlayer({ playerId: 1, name: "Safe", outlookPct: 2.1, dropRisk: false }),
+      buildPlayer({ playerId: 2, name: "At Risk", outlookPct: -4.5, dropRisk: true }),
+    ];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable players={players} columnFilters={[]} />
+      </MemoryRouter>,
+    );
+
+    const table = screen.getByRole("table");
+    expect(within(table).getByText("7d outlook")).toBeInTheDocument();
+    const riskyCell = within(table).getByText("-4.50%");
+    expect(riskyCell.className).toContain("destructive");
+    const safeCell = within(table).getByText("+2.10%");
+    expect(safeCell.className).not.toContain("destructive");
   });
 });
 

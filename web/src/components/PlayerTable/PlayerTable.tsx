@@ -30,8 +30,13 @@ const SORT_ACCESSORS: Record<string, (p: PlayerRow) => number | null> = {
   pricePerPoint: (p) => p.pricePerPoint,
   starterProbability: (p) => p.starterProbability,
   powerScore: (p) => p.powerScore ?? null,
-  economyScore: (p) => p.economyScore ?? null,
   expectedPoints: (p) => p.expectedPoints ?? null,
+  // Task 7. "Plays" sorts by its underlying pStart, not the class string —
+  // see columns.tsx's reliabilityClassColumn, which declares the matching
+  // sortFn for header-click sorting.
+  pointsValuePct: (p) => p.pointsValuePct ?? null,
+  reliabilityClass: (p) => p.pStart ?? null,
+  outlookPct: (p) => p.outlookPct ?? null,
 };
 
 /** Columns whose header and cells right-align on tabular figures. */

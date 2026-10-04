@@ -47,6 +47,22 @@ def test_players_carry_power_and_economy(session, client):
     assert 0 <= rows[ids[4]]["economyScore"] <= 100
 
 
+def test_players_carry_the_live_inputs_fields(session, client):
+    """Task 7: every row gets the compact inputs fields beside score_fields,
+    whatever their values — the keys must always be there."""
+    ids = _seed(session)
+    rows = {r["playerId"]: r for r in client.get("/api/players").json()["players"]}
+    row = rows[ids[0]]
+    for key in (
+        "powerRank", "reliabilityClass", "pStart", "pointsValuePct",
+        "outlookPct", "outlookDirection", "dropRisk", "xptsWindow",
+    ):
+        assert key in row, key
+    # This seed gives every player a snapshot, so reliability always computes.
+    assert row["reliabilityClass"] is not None
+    assert row["pStart"] is not None
+
+
 def test_squad_members_carry_power_and_economy(session, client):
     ids = _seed(session)
     session.add(SquadMember(player_id=ids[0], purchase_price=1, acquired_on=date(2026, 9, 1)))
@@ -69,6 +85,23 @@ def test_player_analytics_shows_inputs_and_windows(session, client):
     assert body["power"]["calibration"] == {"a": xp.RATE_ONLY["MED"][0],
                                             "c": xp.RATE_ONLY["MED"][1]}
     assert body["valuation"]["fit"]["n"] == 20
+
+
+def test_player_analytics_carries_the_live_inputs_blocks(session, client):
+    """Task 7: reliability, evidence, points value, outlook and Power's
+    position rank, added beside the existing ANALYTICS-05 blocks."""
+    ids = _seed(session, n=3)
+    body = client.get(f"/api/players/{ids[0]}/analytics").json()
+    assert body["reliability"]["class"] in {"Nailed", "Regular", "Rotation", "Fringe"}
+    assert isinstance(body["pointsValue"]["replacement"], (int, float)) or (
+        body["pointsValue"]["replacement"] is None
+    )
+    # No market-v2 rows stored in this seed → no outlook to report.
+    assert body["priceOutlook"] is None
+    assert body["powerRank"]["of"] == 3
+    assert "matchesWithMinutes" in body["evidence"]
+    assert "inputsConfidence" in body
+    assert "dataThrough" in body
 
 
 def test_player_analytics_404_and_bad_windows(session, client):

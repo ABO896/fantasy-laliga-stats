@@ -64,6 +64,72 @@ export interface ValuationBlock {
   } | null;
 }
 
+/** Plan B Task 7 — a within-position rank with its percentile (0–100, 100 =
+ * best). The list/squad rows carry the lighter `PowerRank` (see
+ * `api-client/players.ts`) instead; this fuller shape is only the analytics
+ * payload's. */
+export interface RankBlock {
+  rank: number;
+  of: number;
+  percentile: number;
+}
+
+export interface ReliabilityBlock {
+  class: string; // Nailed | Regular | Rotation | Fringe
+  pStart: number;
+  pPlay: number;
+  startShare: number | null;
+  playShare: number | null;
+  subShare: number | null;
+  minutesShare: number | null;
+  shrunkStart: number;
+  sourceStarter: number | null;
+  sourceBlend: number;
+  availability: string | null;
+  availabilityFactor: number;
+  minutesTrend: number | null;
+  matches: number;
+  appearances: number;
+  halfLife: number;
+  priorWeight: number;
+  prior: { start: number; play: number };
+  confidence: "low" | "medium" | "high";
+  basis: string; // "matches" | "source-only"
+  rank: RankBlock | null;
+}
+
+export interface EvidenceBlock {
+  matchesWithMinutes: number;
+  lastSeasonApps: number;
+  ok: boolean;
+  reason: string | null;
+}
+
+export interface PointsValueBlock {
+  value: number | null;
+  xpts: number | null;
+  replacement: number | null;
+  price: number | null;
+  cashPerPoint: number;
+  horizon: number;
+  matches: { opponent: string; isHome: boolean; xp: number }[];
+  reason: string | null;
+  rank: RankBlock | null;
+}
+
+export interface PriceOutlookBlock {
+  expectedPct: number;
+  direction: "rise" | "flat" | "fall";
+  lower: number;
+  upper: number;
+  dropRisk: boolean;
+  basis: string;
+  confidence: "strong" | "moderate" | "weak";
+  terms: Record<string, unknown>;
+  madeOn: string | null;
+  rank: RankBlock | null;
+}
+
 export interface PlayerAnalytics {
   playerId: number;
   form: FormBlock | null;
@@ -73,6 +139,18 @@ export interface PlayerAnalytics {
   valuation: ValuationBlock | null;
   economy: { score: number | null; basis: string } | null;
   marketPrediction: MarketPrediction | null;
+  /** Plan B Task 7 — reliability, points value, 7-day outlook and Power's
+   * position rank. Optional so fixtures predating it still type-check; a
+   * `null` block means the player has no live inputs (dataThrough is also
+   * then null). */
+  powerRank?: RankBlock | null;
+  reliability?: ReliabilityBlock | null;
+  evidence?: EvidenceBlock | null;
+  pointsValue?: PointsValueBlock | null;
+  priceOutlook?: PriceOutlookBlock | null;
+  expectedReturnEur?: number | null;
+  inputsConfidence?: "low" | "medium" | "high" | null;
+  dataThrough?: { prices: string | null; matches: number | null } | null;
 }
 
 export const DEFAULT_WINDOWS = [1, 7, 14, 30];

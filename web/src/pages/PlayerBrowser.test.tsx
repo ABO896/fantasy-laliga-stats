@@ -253,10 +253,14 @@ describe("PlayerBrowser", () => {
   });
 
   it("single_and_null_rendering", async () => {
-    // Scores set so the one em dash asserted below is price/point's own.
+    // Scores set so the one em dash asserted below is price/point's own —
+    // every other visible-by-default numeric column (Task 7's Value/Plays/
+    // 7d outlook included) gets a non-null value too.
     mockPlayers([
       buildPlayer({
         playerId: 1, pricePerPoint: null, powerScore: 50, economyScore: 50, expectedPoints: 3,
+        pointsValuePct: 40, reliabilityClass: "Regular", pStart: 0.6, outlookPct: 1.2,
+        outlookDirection: "rise", dropRisk: false,
       }),
     ]);
     renderWithClient(<PlayerBrowser />);

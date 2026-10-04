@@ -26,15 +26,15 @@ function renderCard(player: SquadMemberRow) {
   );
 }
 
-describe("PlayerCard — Power and Economy (ANALYTICS-06/07)", () => {
-  it("shows both scores rounded", () => {
-    renderCard(member({ powerScore: 71.6, economyScore: 40.2 }));
-    expect(screen.getByText("PWR 72 · ECO 40")).toBeInTheDocument();
+describe("PlayerCard — Power, position rank and Value (ANALYTICS-06, Task 7)", () => {
+  it("shows the score, its position rank, and the points-value percentile", () => {
+    renderCard(member({ powerScore: 71.6, powerRank: { rank: 2, of: 61 }, pointsValuePct: 84 }));
+    expect(screen.getByText("PWR 72 #2 · VAL 84")).toBeInTheDocument();
   });
 
-  it("shows a dash when there is not enough data, never a zero", () => {
-    renderCard(member({ powerScore: null }));
-    expect(screen.getByText("PWR — · ECO —")).toBeInTheDocument();
+  it("shows a dash when there is not enough data, never a zero, and no rank", () => {
+    renderCard(member({ powerScore: null, powerRank: null, pointsValuePct: null }));
+    expect(screen.getByText("PWR — · VAL —")).toBeInTheDocument();
   });
 });
 

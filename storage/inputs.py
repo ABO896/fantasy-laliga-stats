@@ -15,7 +15,6 @@ layer that sits on top of all three.
 """
 
 from collections import defaultdict
-from collections.abc import Mapping
 from datetime import UTC, date, datetime
 
 from sqlmodel import Session, func, select
@@ -217,12 +216,11 @@ def inputs_fields(i: PlayerInputs | None) -> dict:
     }
 
 
-def inputs_payload(i: PlayerInputs, name_of: Mapping[int, str]) -> dict:
-    """The player-page blocks (Plan B Task 7's shape). `name_of` is accepted
-    for Task 7's wiring (e.g. naming a fixture's opponent club) even though
-    nothing here currently needs it — every name this payload shows already
-    comes through `core.inputs.UpcomingMatch.opponent` as a club name."""
-    del name_of
+def inputs_payload(i: PlayerInputs) -> dict:
+    """The player-page blocks (Plan B Task 7's shape). Every name this
+    payload shows (e.g. a fixture's opponent club) already comes through
+    `core.inputs.UpcomingMatch.opponent` as a club name, so unlike
+    `score_fields`/`xp_fields` this needs no separate name lookup."""
     rel = i.reliability
     ev = i.evidence
 

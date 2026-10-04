@@ -237,6 +237,19 @@ def test_every_member_carries_an_availability(client, session):
     assert member["availability"] == "available"
 
 
+def test_every_member_carries_the_live_inputs_fields(client, session):
+    """Task 7: the squad cards get the same compact inputs fields as the
+    browser table — comparing same-position members' reliability and Power
+    rank is the "who should I start" answer."""
+    seed_squad(client, session, shape=("POR",))
+    member = client.get("/api/squad").json()["members"][0]
+    for key in (
+        "powerRank", "reliabilityClass", "pStart", "pointsValuePct",
+        "outlookPct", "outlookDirection", "dropRisk", "xptsWindow",
+    ):
+        assert key in member, key
+
+
 def test_saving_an_xi_persists_the_roles_and_the_formation(client, session):
     ids = seed_squad(client, session)
     response = client.put(

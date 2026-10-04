@@ -78,29 +78,103 @@ function truncatedCell(value: string, maxWidthClass: string) {
   );
 }
 
-/** ANALYTICS-06/07. Sortable through the same nulls-last pre-sort as every
- * other numeric column; a null reads "—" (not enough data), never 0. */
-function scoreColumn(
-  id: "powerScore" | "economyScore",
-  header: string,
-  title: string,
-): PlayerColumnDef {
-  return {
-    id,
-    accessorFn: (row: PlayerRow) => row[id] ?? null,
-    header,
-    sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
-      withIdTieBreak<PlayerRow>((a, b) => nullsLastComparator(a[id] ?? null, b[id] ?? null, false))(
-        rowA.original,
-        rowB.original,
-      ),
-    cell: ({ row }) => (
+/** ANALYTICS-06 + Task 7. Power's score sortable through the same
+ * nulls-last pre-sort as every other numeric column (a null score reads
+ * "—", never 0) — and, beside it in muted text, his rank within his own
+ * position: "71 · #2". `economyScore` lost this column on Task 7 (it stays
+ * in the payload for the transfers page only; see `pointsValuePctColumn`
+ * for the table's replacement "who's worth it" number). */
+const powerScoreColumn: PlayerColumnDef = {
+  id: "powerScore",
+  accessorFn: (row: PlayerRow) => row.powerScore ?? null,
+  header: "Power",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.powerScore ?? null, b.powerScore ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const rank = row.original.powerRank ?? null;
+    const title = rank
+      ? `#${rank.rank} of ${rank.of} ${row.original.position} by Power`
+      : "Power Score (0–100): expected points per match — this season's rate shrunk toward " +
+        "last season, calibrated per position, × availability";
+    return (
       <span className="tabular block text-right" title={title}>
-        {formatNullable(row.original[id] ?? null, (v) => Math.round(v).toString())}
+        {formatNullable(row.original.powerScore ?? null, (v) => Math.round(v).toString())}
+        {rank && <span className="muted"> · #{rank.rank}</span>}
       </span>
-    ),
-  };
-}
+    );
+  },
+};
+
+/** Task 7. Percentile (0–100, within position) of points value per € —
+ * "who's worth it", the table's replacement for the retired Economy
+ * column. */
+const pointsValuePctColumn: PlayerColumnDef = {
+  id: "pointsValuePct",
+  accessorFn: (row: PlayerRow) => row.pointsValuePct ?? null,
+  header: "Value",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.pointsValuePct ?? null, b.pointsValuePct ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => (
+    <span
+      className="tabular block text-right"
+      title="Points above a cheap regular starter, per € — percentile within position"
+    >
+      {formatNullable(row.original.pointsValuePct ?? null, (v) => Math.round(v).toString())}
+    </span>
+  ),
+};
+
+/** Task 7. The reliability class (Nailed/Regular/Rotation/Fringe) — sorted
+ * by its underlying `pStart`, not alphabetically, so "Plays" orders the
+ * same way the class itself was derived. */
+const reliabilityClassColumn: PlayerColumnDef = {
+  id: "reliabilityClass",
+  accessorFn: (row: PlayerRow) => row.reliabilityClass ?? null,
+  header: "Plays",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.pStart ?? null, b.pStart ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const pStart = row.original.pStart ?? null;
+    const title =
+      pStart === null
+        ? "Reliability class — not enough evidence yet"
+        : `Starts ${Math.round(pStart * 100)}% of matches next — reliability class`;
+    return (
+      <span className="block text-right" title={title}>
+        {row.original.reliabilityClass ?? "—"}
+      </span>
+    );
+  },
+};
+
+/** Task 7. Market-v2's 7-day expected price move, signed — in red whenever
+ * that player carries drop risk (the prediction interval's lower bound is
+ * negative). */
+const outlookPctColumn: PlayerColumnDef = {
+  id: "outlookPct",
+  accessorFn: (row: PlayerRow) => row.outlookPct ?? null,
+  header: "7d outlook",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.outlookPct ?? null, b.outlookPct ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => (
+    <span
+      className={`tabular block text-right ${
+        row.original.dropRisk ? "text-[color:var(--color-destructive)]" : ""
+      }`}
+      title="Expected 7-day price move (market-v2)"
+    >
+      {formatPercent(row.original.outlookPct ?? null)}
+    </span>
+  ),
+};
 
 /** MODEL-02. One decimal, because xP is an expected value in points, not a
  * 0–100 score; the basis rides along in the tooltip. */
@@ -282,18 +356,11 @@ const baseColumns: PlayerColumnDef[] = [
       </span>
     ),
   },
-  scoreColumn(
-    "powerScore",
-    "Power",
-    "Power Score (0–100): expected points per match — this season's rate shrunk toward " +
-      "last season, calibrated per position, × availability",
-  ),
-  scoreColumn(
-    "economyScore",
-    "Economy",
-    "Economy Score (0–100): how far below what his Power usually costs the player is priced",
-  ),
+  powerScoreColumn,
+  pointsValuePctColumn,
+  reliabilityClassColumn,
   expectedPointsColumn,
+  outlookPctColumn,
   {
     id: "starterProbability",
     accessorKey: "starterProbability",

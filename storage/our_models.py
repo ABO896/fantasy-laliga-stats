@@ -191,10 +191,31 @@ def _round(x: float | None, n: int = 2) -> float | None:
     return round(x, n) if x is not None else None
 
 
+#: `player_analytics_payload`'s Plan B Task 7 blocks when the player has no
+#: live inputs (no snapshot and no price at all) — the same null shape
+#: `api.routes.analytics._EMPTY` serves when the player has nothing else
+#: either.
+_EMPTY_INPUTS = {
+    "powerRank": None,
+    "reliability": None,
+    "evidence": None,
+    "pointsValue": None,
+    "priceOutlook": None,
+    "expectedReturnEur": None,
+    "inputsConfidence": None,
+    "dataThrough": None,
+}
+
+
 def player_analytics_payload(
     session: Session, player_id: int, windows: list[int]
 ) -> dict | None:
     """ANALYTICS-05: every metric with its inputs and its window."""
+    # Imported here, not at module level: `storage.inputs` itself imports
+    # `calendar_final_weeks`/`load_gameweek_rows` from this module, so a
+    # top-level import the other way would be a cycle.
+    from storage.inputs import compute_live_inputs, inputs_payload
+
     all_analytics = compute_player_analytics(session)
     a = all_analytics.get(player_id)
     history = [
@@ -209,6 +230,11 @@ def player_analytics_payload(
         .where(MarketPrediction.model_version == mm.MODEL_VERSION)
         .order_by(MarketPrediction.made_on.desc())
     ).first()
+
+    # Plan B Task 7: reliability, points value, outlook and Power's position
+    # rank — computed once for every player, same as the browser table.
+    live_inputs = compute_live_inputs(session).get(player_id)
+    inputs = inputs_payload(live_inputs) if live_inputs is not None else _EMPTY_INPUTS
 
     recent = a.series[-an.RECENT_WINDOW:] if a else []
     fit = a.valuation.fit if a and a.valuation else None
@@ -279,6 +305,7 @@ def player_analytics_payload(
                      "(starter > 30%, ≥ 3 matches this season, available)",
         },
         "marketPrediction": prediction and _prediction_payload(prediction),
+        **inputs,
     }
 
 
