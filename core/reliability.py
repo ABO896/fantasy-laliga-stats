@@ -94,8 +94,10 @@ def _shares(ms: Sequence[ClubMatch]) -> tuple[float, float, float, int] | None:
     return start, play, minutes, len(ms)
 
 
-def _class(p_start: float) -> str:
-    for name, threshold in CLASS_THRESHOLDS:
+def _class(
+    p_start: float, class_thresholds: Sequence[tuple[str, float]] = CLASS_THRESHOLDS
+) -> str:
+    for name, threshold in class_thresholds:
         if p_start >= threshold:
             return name
     return "Fringe"
@@ -114,6 +116,7 @@ def reliability(
     prior: Prior,
     source_starter_pct: float | None,
     availability: str,
+    class_thresholds: Sequence[tuple[str, float]] = CLASS_THRESHOLDS,
 ) -> Reliability:
     ms = sorted(matches or [], key=lambda m: m.week)
     shares = _shares(ms)
@@ -160,7 +163,7 @@ def reliability(
         minutes_trend=_trend(ms),
         matches=n,
         appearances=sum(1 for m in ms if m.minutes > 0),
-        cls=_class(p_start),
+        cls=_class(p_start, class_thresholds),
         confidence=confidence,
         basis=basis,
     )

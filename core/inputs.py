@@ -32,6 +32,7 @@ from core import expected_points as xp
 from core.market_v2 import Outlook
 from core.ranks import Rank, position_ranks
 from core.reliability import (
+    CLASS_THRESHOLDS,
     DEFAULT_PRIOR,
     RELIABLE_CLASSES,
     ClubMatch,
@@ -190,6 +191,7 @@ def compute_inputs(
     outlooks: Mapping[int, Outlook],
     fixture_multipliers: Mapping[str, float] | None = None,
     horizon: int = 3,
+    class_thresholds: Sequence[tuple[str, float]] = CLASS_THRESHOLDS,
 ) -> dict[int, PlayerInputs]:
     season = data.season
     rows = [
@@ -240,7 +242,7 @@ def compute_inputs(
         power = an.power_score(p_inputs) if p_inputs else None
 
         prior = priors.get(position, DEFAULT_PRIOR)
-        rel = reliability(club_matches.get(pid), prior, starter, availability)
+        rel = reliability(club_matches.get(pid), prior, starter, availability, class_thresholds)
         lines = data.match_lines.get(pid, {}) if pid in data.page_players else {}
         with_minutes = sum(1 for w, (mins, _) in lines.items() if w in known_weeks and mins > 0)
         ev = evidence(with_minutes, data.last_season_apps.get(pid, 0))
