@@ -22,11 +22,19 @@ vi.mock("../../api-client/market-model", async () => {
   };
 });
 
+vi.mock("../../api-client/verdict", async () => {
+  const actual = await vi.importActual<typeof import("../../api-client/verdict")>(
+    "../../api-client/verdict",
+  );
+  return { ...actual, fetchVerdictValidation: vi.fn() };
+});
+
 import {
   fetchDivergence,
   fetchMarketPredictions,
   fetchTrackRecord,
 } from "../../api-client/market-model";
+import { fetchVerdictValidation } from "../../api-client/verdict";
 import { formatRate, tierRecord } from "../../lib/marketRecord";
 import MarketModelTab from "./MarketModelTab";
 
@@ -93,6 +101,26 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     });
     vi.mocked(fetchTrackRecord).mockResolvedValue(record(bucket(0, 0, 556), bucket(6218, 5776)));
     vi.mocked(fetchDivergence).mockResolvedValue(DIVERGENCE);
+    vi.mocked(fetchVerdictValidation).mockResolvedValue({ generatedAt: null, labels: [] });
+  });
+
+  it("shows the verdict validation section, with the refresh instruction before a report exists (Plan C Task 6)", async () => {
+    renderTab();
+    expect(await screen.findByText("Verdict validation")).toBeInTheDocument();
+    expect(await screen.findByText(/verdict_backtest --write/)).toBeInTheDocument();
+  });
+
+  it("renders the stored report's label rows once one exists", async () => {
+    vi.mocked(fetchVerdictValidation).mockResolvedValue({
+      generatedAt: "2026-10-01T00:00:00Z",
+      labels: [
+        { label: "Sell high", metric: "price_pct", n: 40, players: 12, hitRate: 0.5,
+          baseRate: 0.52, meanDiff: -0.1, ciLow: -0.3, ciHigh: 0.1, beatsChance: false },
+      ],
+    });
+    renderTab();
+    expect(await screen.findByText("Sell high")).toBeInTheDocument();
+    expect(screen.getByText("✗")).toBeInTheDocument();
   });
 
   it("lists risers and fallers with their confidence", async () => {

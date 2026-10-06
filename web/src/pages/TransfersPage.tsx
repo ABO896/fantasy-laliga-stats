@@ -22,6 +22,7 @@ import {
 } from "../components/transfers/shared";
 import { formatPercent } from "../lib/format";
 import PageHeader from "../components/ui/PageHeader";
+import VerdictChip from "../components/verdict/VerdictChip";
 
 /** Phase 11 — "who should I move?". Four sections, all server-computed:
  * suggested moves, bargains, best by position, and our own bids.
@@ -136,11 +137,13 @@ function MoveCard({ move, rank }: { move: Move; rank: number }) {
   const { sell, buy } = move;
   return (
     <li className="panel flex flex-col gap-xs px-md py-sm">
+      <h4 className="font-semibold">{move.phrase}</h4>
       <div className="flex flex-wrap items-center gap-sm text-sm">
         <span className="font-[family-name:var(--font-display)] text-[20px] font-bold leading-none muted tabular-nums">{rank}</span>
         {sell ? (
           <>
             <span className="badge bg-[color:var(--color-destructive)]/12 text-[color:var(--color-destructive)]">Sell</span> <PlayerLink player={sell} />
+            {sell.verdict && <VerdictChip label={sell.verdict.label} size="sm" />}
             <span className={muted}>
               {sell.position} · {euro(sell.marketValue)}
             </span>
@@ -150,6 +153,7 @@ function MoveCard({ move, rank }: { move: Move; rank: number }) {
           <span className="font-semibold">Fill a free slot:</span>
         )}
         <span className="badge bg-[color:var(--color-accent)]/12 text-[color:var(--color-accent)]">buy</span> <PlayerLink player={buy} />
+        {buy.verdict && <VerdictChip label={buy.verdict.label} size="sm" />}
         <span className={muted}>
           {buy.position} · {buy.team} · {euro(buy.marketValue)} · our bid {euro(buy.bids.ourIdeal)}
           –{euro(buy.bids.ourMax)}
@@ -258,7 +262,8 @@ function Bargains({ query }: { query: TransferQuery }) {
             {data.players.map((p) => (
               <tr key={p.playerId}>
                 <td>
-                  <PlayerLink player={p} /> <span className={muted}>{p.position} · {p.team}</span>
+                  <PlayerLink player={p} /> <span className={muted}>{p.position} · {p.team}</span>{" "}
+                  {p.verdict && <VerdictChip label={p.verdict.label} size="sm" />}
                 </td>
                 <td className="num">{euro(p.marketValue)}</td>
                 <td className="num">{num(p.expectedReturn)}</td>
@@ -355,7 +360,8 @@ function BestByPosition({
                 <td className="num muted">{i + 1}</td>
                 <td>
                   <PlayerLink player={p} /> <span className={muted}>{p.team}</span>
-                  {p.owned && <span className="badge ml-xs bg-[color:var(--color-accent)]/12 text-[color:var(--color-accent)]">(yours)</span>}
+                  {p.owned && <span className="badge ml-xs bg-[color:var(--color-accent)]/12 text-[color:var(--color-accent)]">(yours)</span>}{" "}
+                  {p.verdict && <VerdictChip label={p.verdict.label} size="sm" />}
                 </td>
                 <td className="num">{num(p.expectedReturn)}</td>
                 <td className="num">{num(p.powerScore)}</td>

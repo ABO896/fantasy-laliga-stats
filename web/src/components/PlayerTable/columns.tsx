@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import type { PlayerRow } from "../../api-client/players";
+import { VERDICT_LABELS } from "../../api-client/verdict";
 import {
   formatEuroAbbreviated,
   formatNullable,
@@ -19,6 +20,7 @@ import {
 import { nullsLastComparator, withIdTieBreak } from "../../lib/sorting";
 import { StarButton } from "../WatchlistToggle";
 import PosBadge from "../ui/PosBadge";
+import VerdictChip from "../verdict/VerdictChip";
 
 /**
  * The actual row order applied to the table is computed by `PlayerTable.tsx`
@@ -51,6 +53,16 @@ const AVAILABILITY_BADGE_CLASS: Record<string, string> = {
   doubtful: "bg-[color:var(--color-warning)]/10 text-[color:var(--color-warning)]",
   suspended: "bg-[color:var(--color-neutral)]/10 muted",
 };
+
+/** `LABELS`' priority order — never alphabetical — so sorting the verdict
+ * column (ascending or descending) orders by the same priority the rule
+ * engine itself applies. `null` (no live verdict) sorts after every known
+ * label, through `nullsLastComparator`. */
+function verdictRank(label: string | null): number | null {
+  if (label === null) return null;
+  const idx = VERDICT_LABELS.indexOf(label as (typeof VERDICT_LABELS)[number]);
+  return idx === -1 ? null : idx;
+}
 
 function multiSelectFilter(row: PlayerRowLike, columnId: string, filterValue: string[]): boolean {
   if (!filterValue || filterValue.length === 0) return true;
@@ -174,6 +186,28 @@ const outlookPctColumn: PlayerColumnDef = {
       {formatPercent(row.original.outlookPct ?? null)}
     </span>
   ),
+};
+
+/** Plan C Task 6 — the verdict label every surface agrees on. Sorted by
+ * `LABELS` priority order (see `verdictRank`), never alphabetically, and
+ * filterable the same way position/team/availability already are. */
+const verdictColumn: PlayerColumnDef = {
+  id: "verdict",
+  accessorFn: (row: PlayerRow) => row.verdict?.label ?? null,
+  header: "Verdict",
+  filterFn: multiSelectFilter,
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(
+        verdictRank(a.verdict?.label ?? null),
+        verdictRank(b.verdict?.label ?? null),
+        false,
+      ),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const label = row.original.verdict?.label ?? null;
+    return <span className="block text-right">{label ? <VerdictChip label={label} /> : "—"}</span>;
+  },
 };
 
 /** MODEL-02. One decimal, because xP is an expected value in points, not a
@@ -359,6 +393,7 @@ const baseColumns: PlayerColumnDef[] = [
   powerScoreColumn,
   pointsValuePctColumn,
   reliabilityClassColumn,
+  verdictColumn,
   expectedPointsColumn,
   outlookPctColumn,
   {

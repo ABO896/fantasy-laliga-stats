@@ -248,3 +248,53 @@ describe("PlayerTable — xP column (MODEL-02)", () => {
     expect(within(table).getByText("xP")).toBeInTheDocument();
   });
 });
+
+describe("PlayerTable — Verdict column (Plan C Task 6)", () => {
+  it("renders the chip and sorts by LABELS priority order, nulls last", () => {
+    const players = [
+      buildPlayer({ playerId: 1, name: "Fair", verdict: { label: "Fair price", tags: [], confidence: "medium" } }),
+      buildPlayer({ playerId: 2, name: "No Verdict", verdict: null }),
+      buildPlayer({ playerId: 3, name: "Top", verdict: { label: "Elite", tags: [], confidence: "high" } }),
+    ];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable
+          players={players}
+          columnFilters={[]}
+          sorting={[{ id: "verdict", desc: false }]}
+          onSortingChange={() => {}}
+        />
+      </MemoryRouter>,
+    );
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows.map((row) => within(row).getAllByRole("cell")[0]!.textContent)).toEqual([
+      "Top",
+      "Fair",
+      "No Verdict",
+    ]);
+    expect(within(rows[0]!).getByText("Elite")).toBeInTheDocument();
+    expect(within(table).getByText("Verdict")).toBeInTheDocument();
+  });
+
+  it("keeps only rows matching the selected verdict labels", () => {
+    const players = [
+      buildPlayer({ playerId: 1, name: "Keep", verdict: { label: "Elite", tags: [], confidence: "high" } }),
+      buildPlayer({ playerId: 2, name: "Drop", verdict: { label: "Avoid", tags: [], confidence: "low" } }),
+      buildPlayer({ playerId: 3, name: "Also Drop", verdict: null }),
+    ];
+
+    render(
+      <MemoryRouter>
+        <PlayerTable players={players} columnFilters={[{ id: "verdict", value: ["Elite"] }]} />
+      </MemoryRouter>,
+    );
+
+    const table = screen.getByRole("table");
+    const rows = within(table).getAllByRole("row").slice(1);
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0]!).getByText("Keep")).toBeInTheDocument();
+  });
+});

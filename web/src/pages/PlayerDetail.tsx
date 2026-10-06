@@ -11,6 +11,7 @@ import VerdictStrip from "../components/player-detail/VerdictStrip";
 import WatchlistToggle from "../components/WatchlistToggle";
 import PosBadge from "../components/ui/PosBadge";
 import OurBidCard from "../components/transfers/OurBidCard";
+import VerdictBanner from "../components/verdict/VerdictBanner";
 
 export default function PlayerDetail() {
   const { playerId } = useParams();
@@ -102,6 +103,7 @@ export default function PlayerDetail() {
         </p>
       </header>
 
+      <VerdictBanner playerId={player.playerId} />
       <VerdictStrip latest={data.latest} squad={data.squad} predictions={data.predictions} />
       <OurBidCard playerId={player.playerId} />
 

@@ -38,6 +38,19 @@ describe("PlayerCard — Power, position rank and Value (ANALYTICS-06, Task 7)",
   });
 });
 
+describe("PlayerCard — verdict chip (Plan C Task 6)", () => {
+  it("shows a small verdict chip when the player has a verdict", () => {
+    renderCard(member({ verdict: { label: "Bargain", tags: [], confidence: "high" } }));
+    const chip = screen.getByText("Bargain");
+    expect(chip).toHaveClass("verdict-chip-sm");
+  });
+
+  it("shows nothing where the chip would go when there is no verdict", () => {
+    renderCard(member({ verdict: null }));
+    expect(screen.queryByText(/Bargain|Elite|Avoid/)).not.toBeInTheDocument();
+  });
+});
+
 describe("PlayerCard — expected points (MODEL-02)", () => {
   it("shows xP to one decimal with its basis", () => {
     renderCard(member({ expectedPoints: 4.26, expectedPointsBasis: "form+starter+odds" }));

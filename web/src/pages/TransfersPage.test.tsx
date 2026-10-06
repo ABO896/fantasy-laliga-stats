@@ -68,6 +68,7 @@ function player(playerId: number, name: string, extra: Partial<TransferPlayer> =
     efficiency: 1.13, holdValue: 16.2, evidence: 1,
     bids: { ourIdeal: 4_655_000, ourMax: 5_100_000, sourceIdeal: 4_600_000, sourceMax: 4_700_000,
             inputs: { horizonUpdates: 3, surplusShare: 0.1, maxPremium: 0.25 } },
+    verdict: { label: "Fair price", reason: "No strong signal either way." },
     ...extra,
   };
 }
@@ -78,8 +79,11 @@ function suggestions(freshness: Freshness = FRESH): SuggestionsResponse {
     squadSize: 24, maxSquadSize: 24, unassessedMembers: [],
     moves: [{
       kind: "swap",
-      sell: player(1, "Pérez", { owned: true, expectedReturn: 0 }),
-      buy: player(2, "Brugué"),
+      sell: player(1, "Pérez", {
+        owned: true, expectedReturn: 0,
+        verdict: { label: "Sell high", reason: "Price is falling with drop risk." },
+      }),
+      buy: player(2, "Brugué", { verdict: { label: "Elite", reason: "Top-quarter quality." } }),
       gain: 17.7,
       signals: [
         { name: "points", text: "Best XI +5.2 expected pts/jornada over 3 jornadas", contribution: 15.6 },
@@ -89,6 +93,7 @@ function suggestions(freshness: Freshness = FRESH): SuggestionsResponse {
       confidenceLabel: freshness.label,
       confidenceReasons: freshness.reasons,
       feasibleFormations: ["4-4-2", "4-3-3"],
+      phrase: "Sell Pérez (Sell high) → buy Brugué (Elite)",
     }],
   };
 }
@@ -141,6 +146,16 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
     expect(within(moves).getByText(/high confidence/)).toBeInTheDocument();
   });
 
+  it("leads each move's heading with the server's phrase, and shows a chip per player (Plan C Task 6)", async () => {
+    renderPage();
+    const moves = await screen.findByRole("region", { name: "Suggested moves" });
+    expect(
+      await within(moves).findByText("Sell Pérez (Sell high) → buy Brugué (Elite)"),
+    ).toBeInTheDocument();
+    expect(within(moves).getByText("Sell high")).toBeInTheDocument();
+    expect(within(moves).getByText("Elite")).toBeInTheDocument();
+  });
+
   it("visibly loses confidence when the data is stale, and says why", async () => {
     vi.mocked(fetchSuggestions).mockResolvedValue(suggestions(STALE));
     renderPage();
@@ -157,9 +172,11 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
     expect(fetchBargains).toHaveBeenCalledWith({ n: 5, max: 5_000_000, basis: "ourIdealBid" }, true);
   });
 
-  it("lists bargains and our bids beside the source's", async () => {
+  it("lists bargains and our bids beside the source's, each bargain carrying its verdict chip", async () => {
     renderPage();
     expect(await screen.findByText("O. Rey")).toBeInTheDocument();
+    const bargains = await screen.findByRole("region", { name: "Bargains" });
+    expect(within(bargains).getByText("Fair price")).toBeInTheDocument();
     const bids = await screen.findByRole("region", { name: /Our bids/ });
     expect(await within(bids).findByText("€144.26M")).toBeInTheDocument();
     expect(within(bids).getByText("€144.93M")).toBeInTheDocument();

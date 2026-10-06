@@ -1,6 +1,7 @@
 import { API_BASE_URL, apiFetch } from "./client";
 import type { GameweekPointsRow } from "./player-detail";
 import type { PowerRank } from "./players";
+import type { VerdictSummary } from "./verdict";
 
 export type SquadRole = "starter" | "bench" | "reserve";
 
@@ -33,6 +34,8 @@ export interface SquadMemberRow {
   outlookDirection?: "rise" | "flat" | "fall" | null;
   dropRisk?: boolean | null;
   xptsWindow?: number | null;
+  /** Plan C Task 5 — see `PlayerRow`. */
+  verdict?: VerdictSummary | null;
 }
 
 export interface SquadViolation {

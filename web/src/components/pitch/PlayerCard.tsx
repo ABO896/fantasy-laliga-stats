@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { SquadMemberRow } from "../../api-client/squad";
 import { formatEuroAbbreviated } from "../../lib/format";
+import VerdictChip from "../verdict/VerdictChip";
 
 const POSITION_NAMES: Record<string, string> = {
   POR: "goalkeeper",
@@ -98,6 +99,8 @@ export default function PlayerCard({
               ? "—"
               : player.expectedPoints.toFixed(1)}
           </span>
+          {/* Plan C Task 6 — the verdict label every surface agrees on. */}
+          {player.verdict && <VerdictChip label={player.verdict.label} size="sm" />}
         </span>
         {player.availability !== "available" && (
           <span className="mt-[2px] inline-block rounded-[var(--radius-sm)] bg-[color:var(--color-warning)]/15 px-[5px] text-[11px] font-semibold capitalize text-[color:var(--color-warning)]">

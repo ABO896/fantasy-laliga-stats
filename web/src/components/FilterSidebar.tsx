@@ -1,4 +1,5 @@
 import type { PlayerRow } from "../api-client/players";
+import { VERDICT_LABELS } from "../api-client/verdict";
 import { formatEuroAbbreviated } from "../lib/format";
 import PosBadge from "./ui/PosBadge";
 
@@ -8,6 +9,9 @@ export interface PlayerFilters {
   positions: string[];
   teams: string[];
   availability: string[];
+  /** Plan C Task 6 — which verdict labels to keep; empty means no
+   * constraint, same semantics as every other facet here. */
+  verdict: string[];
   /** Euros, not millions — the input takes millions and converts. Null means
    * no ceiling at all, which is not the same as zero. */
   maxPrice: number | null;
@@ -49,7 +53,7 @@ function toggle(list: string[], item: string): string[] {
   return list.includes(item) ? list.filter((v) => v !== item) : [...list, item];
 }
 
-type ChipFacet = "positions" | "teams" | "availability";
+type ChipFacet = "positions" | "teams" | "availability" | "verdict";
 
 interface Chip {
   facet: ChipFacet;
@@ -89,6 +93,7 @@ export default function FilterSidebar({
     ...value.positions.map((v): Chip => ({ facet: "positions", value: v })),
     ...value.teams.map((v): Chip => ({ facet: "teams", value: v })),
     ...value.availability.map((v): Chip => ({ facet: "availability", value: v })),
+    ...value.verdict.map((v): Chip => ({ facet: "verdict", value: v })),
   ];
   const hasPriceFilter = value.maxPrice !== null;
   const watchlistOnly = value.watchlistOnly === true;
@@ -107,6 +112,7 @@ export default function FilterSidebar({
       positions: [],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
       watchlistOnly: false,
@@ -258,6 +264,22 @@ export default function FilterSidebar({
                   }
                 />
                 {status}
+              </label>
+            ))}
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend className={legendClass}>Verdict</legend>
+          <div className="grid grid-cols-2 gap-x-sm lg:grid-cols-1">
+            {VERDICT_LABELS.map((label) => (
+              <label key={label} className={optionClass}>
+                <input
+                  type="checkbox"
+                  checked={value.verdict.includes(label)}
+                  onChange={() => onChange({ ...value, verdict: toggle(value.verdict, label) })}
+                />
+                {label}
               </label>
             ))}
           </div>

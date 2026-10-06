@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import type { VerdictSummary } from "./verdict";
 
 /** Plan B Task 7 — the compact shape `powerRank` takes on list/squad rows:
  * just enough to render "#2", never the percentile (that's the analytics
@@ -51,6 +52,10 @@ export interface PlayerRow {
   dropRisk?: boolean | null;
   /** Expected points over the look-ahead window (spec's `horizon`). */
   xptsWindow?: number | null;
+  /** Plan C Task 5 — the verdict label every surface agrees on. Optional
+   * so fixtures predating it still type-check; null means no live inputs
+   * (same condition as a null `powerRank`). */
+  verdict?: VerdictSummary | null;
 }
 
 export interface PlayersResponse {

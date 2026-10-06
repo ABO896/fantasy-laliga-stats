@@ -12,8 +12,10 @@ import {
   type TrackRecordResponse,
   type V1TrackRecordResponse,
 } from "../../api-client/market-model";
+import { fetchVerdictValidation } from "../../api-client/verdict";
 import { formatEuroAbbreviated, formatPercent, formatShortDate } from "../../lib/format";
 import { formatRate, tierRecord } from "../../lib/marketRecord";
+import VerdictValidationTable from "../verdict/VerdictValidationTable";
 
 const TIERS: MarketConfidence[] = ["strong", "moderate", "weak"];
 const LIST_LENGTH = 15;
@@ -306,6 +308,30 @@ function Divergence() {
   );
 }
 
+/** Plan C Task 6 — the stored walk-forward report (`storage/verdict_backtest.py`),
+ * directly below the track record block: both answer "has this number
+ * earned our trust", one for market moves, one for verdict labels. */
+function VerdictValidation() {
+  const { data, isLoading, isError } = useQuery({
+    queryKey: ["verdict-validation"],
+    queryFn: fetchVerdictValidation,
+  });
+  return (
+    <section className="flex flex-col gap-sm" aria-labelledby="verdict-validation-heading">
+      <h3 id="verdict-validation-heading" className="section-title">
+        Verdict validation
+      </h3>
+      <p className="text-xs muted">
+        Each label that makes a forward claim, scored against what an average same-position
+        player did on the same day — a label beats chance only when its 90% interval clears zero.
+      </p>
+      {isLoading && <p className="state-note">Loading the validation report…</p>}
+      {isError && <p className="state-error">Couldn't load the validation report.</p>}
+      {data && <VerdictValidationTable report={data} />}
+    </section>
+  );
+}
+
 const VERSION_LABEL: Record<MarketModelVersion, string> = {
   "market-v1": "v1 · next update",
   "market-v2": "v2 · 7-day",
@@ -359,6 +385,7 @@ export default function MarketModelTab() {
       ) : (
         <V2TrackRecord record={record} />
       ))}
+      <VerdictValidation />
       <Divergence />
     </div>
   );

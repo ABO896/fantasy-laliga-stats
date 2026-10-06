@@ -89,6 +89,17 @@
   --color-chart-1: var(--color-accent);
   --color-chart-grid: var(--color-line);
 
+  /* Colour — verdict tones (Plan C Task 6). Aliases onto the existing
+     semantic colours above, the same way --color-chart-1 aliases onto
+     --color-accent: a verdict label never gets a colour the rest of the
+     app doesn't already use for the same meaning, and each resolves
+     through the alias to whichever value is active (light or dark) —
+     no separate dark-mode re-declaration needed, same as --color-chart-1. */
+  --color-verdict-positive: var(--color-accent);
+  --color-verdict-negative: var(--color-destructive);
+  --color-verdict-caution: var(--color-warning);
+  --color-verdict-neutral: var(--color-neutral);
+
   /* Typography — Barlow for text and figures (it carries tabular
      numerals), Barlow Condensed for titles, table heads and big numbers:
      condensed type is what lets a 15-column table breathe. */
@@ -391,6 +402,42 @@
   .pos-badge[data-pos="DEL"] {
     color: var(--color-pos-del);
     background: var(--color-pos-del-soft);
+  }
+
+  /* Verdict chip (Plan C Task 6) — one of four tones, never colour alone:
+     the label text is always the chip's content. */
+  .verdict-chip {
+    display: inline-flex;
+    align-items: center;
+    border-radius: var(--radius-sm);
+    font-family: var(--font-display);
+    font-weight: 700;
+    letter-spacing: 0.01em;
+    line-height: 1.3;
+  }
+  .verdict-chip-md {
+    padding: 2px 9px;
+    font-size: 13px;
+  }
+  .verdict-chip-sm {
+    padding: 1px 6px;
+    font-size: 11px;
+  }
+  .verdict-chip[data-tone="positive"] {
+    color: var(--color-verdict-positive);
+    background: color-mix(in srgb, var(--color-verdict-positive) 14%, transparent);
+  }
+  .verdict-chip[data-tone="negative"] {
+    color: var(--color-verdict-negative);
+    background: color-mix(in srgb, var(--color-verdict-negative) 14%, transparent);
+  }
+  .verdict-chip[data-tone="caution"] {
+    color: var(--color-verdict-caution);
+    background: color-mix(in srgb, var(--color-verdict-caution) 14%, transparent);
+  }
+  .verdict-chip[data-tone="neutral"] {
+    color: var(--color-verdict-neutral);
+    background: color-mix(in srgb, var(--color-verdict-neutral) 14%, transparent);
   }
 
   /* ---- Tables -------------------------------------------------------- */
