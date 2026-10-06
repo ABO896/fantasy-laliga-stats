@@ -1,4 +1,4 @@
-from core.personal import Candidate, SquadEntry, personal_line
+from core.personal import Candidate, SquadEntry, _cost_phrase, personal_line
 from core.rules import load_rules
 from core.verdict import Verdict
 
@@ -102,6 +102,38 @@ def test_extra_keeper_adds_nothing():
 
     assert line.kind == "no_improvement"
     assert line.text == "No improvement on your current PORs."
+
+
+def test_not_owned_fills_empty_slot_when_no_starter_at_position():
+    # No MED at all in the squad: there is nobody at the candidate's
+    # position to replace, so the line compares against the empty slot
+    # (`best_xi(squad + player)`) and names no other player.
+    squad = [
+        SquadEntry(1, "Keeper", "POR", 6.0, 1_000_000),
+        SquadEntry(201, "D1", "DEF", 5.0, 1_000_000),
+        SquadEntry(202, "D2", "DEF", 5.0, 1_000_000),
+        SquadEntry(203, "D3", "DEF", 5.0, 1_000_000),
+        SquadEntry(401, "F1", "DEL", 5.0, 1_000_000),
+        SquadEntry(402, "F2", "DEL", 5.0, 1_000_000),
+        SquadEntry(403, "F3", "DEL", 5.0, 1_000_000),
+    ]
+    candidate = Candidate(999, "New Med", "MED", 7.0, 2_000_000, True)
+
+    line = personal_line(candidate, v("Fair price"), squad, [], RULES, 3)
+
+    assert line.kind == "replace"
+    assert line.other_player_id is None
+    assert line.other_name is None
+    assert line.gain == 7.0
+    assert line.text == (
+        "Would fill your empty MED slot: +7.0 expected points over 3 jornadas, "
+        "costs €2.0M"
+    )
+
+
+def test_cost_phrase_with_unknown_cost():
+    assert _cost_phrase(None, more=True) == "price unknown"
+    assert _cost_phrase(None, more=False) == "price unknown"
 
 
 def test_ceiling_reports_overage():

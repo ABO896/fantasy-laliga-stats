@@ -16,7 +16,9 @@ position who is currently a *starter* in the best XI (not merely owned) —
 replacing a benched duplicate is not a move worth suggesting, since it
 never changes what the XI scores. When nobody at the position starts at
 all (an empty slot), the candidate is compared against the empty slot
-itself (`best_xi(squad + player)`), with no "other player" to name.
+itself (`best_xi(squad + player)`), with no "other player" to name — the
+line still reads `replace` (a move is still suggested), worded as
+"Would fill your empty {position} slot: …" rather than naming someone.
 
 The incoming player's `xpts` is already a total over the caller's horizon
 (Plan B's `WindowXp.total`), not a per-jornada rate — `best_xi` returns the
@@ -31,7 +33,7 @@ from dataclasses import dataclass
 
 from core.rules import Rules
 from core.transfers import MIN_GAIN, best_xi
-from core.verdict import Verdict
+from core.verdict import Verdict, _eur  # _eur shared from here, never duplicated
 
 SELL_LABELS = frozenset({"Sell high", "Avoid", "Overpriced"})
 
@@ -64,12 +66,6 @@ class PersonalLine:
     other_player_id: int | None
     other_name: str | None
     over_ceiling_by: int | None  # € over the owner's ceiling, None when affordable or no ceiling
-
-
-def _eur(x: float) -> str:
-    if abs(x) >= 1_000_000:
-        return f"€{x / 1_000_000:.1f}M"
-    return f"€{round(x / 1000)}k"
 
 
 def _cost_phrase(cost: int | None, more: bool) -> str:
