@@ -464,6 +464,21 @@ class PlayerMatchStats(SQLModel, table=True):
     scrape_run_id: int = Field(foreign_key="scraperun.id")
 
 
+class ModelReport(SQLModel, table=True):
+    """A stored JSON report from one of this app's own validation harnesses
+    — currently `storage.verdict_backtest`'s walk-forward check that each
+    verdict label beats chance (Plan C, spec success criterion 3).
+
+    One row per named report (`name` is the primary key — e.g.
+    `"verdict-validation"`); `write_report` upserts in place rather than
+    historizing, since only the latest run is ever read.
+    """
+
+    name: str = Field(primary_key=True)
+    generated_at: datetime
+    payload: str  # JSON
+
+
 class PlayerPageFetch(SQLModel, table=True):
     """Last attempt per player — drives resume order and the weekly sweep."""
 
