@@ -14,6 +14,11 @@ export type MetricKey =
   | "consistency"
   | "momentum";
 
+export interface Band {
+  below: number;
+  word: string;
+}
+
 export interface MetricCopy {
   /** "Power", "Points value", "7-day price outlook", … */
   title: string;
@@ -21,8 +26,11 @@ export interface MetricCopy {
   meaning: string;
   /** Why it matters for winning, one line. */
   why: string;
-  /** Ascending; last band catches the rest. Omit to use DEFAULT_BANDS. */
-  bands?: { below: number; word: string }[];
+  /** Ascending; last band catches the rest. Omit to use DEFAULT_BANDS; set
+   * `null` for a metric that has no percentile bands at all because its word
+   * comes from its own vocabulary (verdict's label, reliability's class,
+   * outlook's direction) rather than from where it sits within its position. */
+  bands?: Band[] | null;
 }
 
 export const METRIC_COPY: Record<MetricKey, MetricCopy> = {
@@ -30,6 +38,7 @@ export const METRIC_COPY: Record<MetricKey, MetricCopy> = {
     title: "Verdict",
     meaning: "The one-word summary of what to do with him, from the inputs below.",
     why: "It turns every number on this page into a decision.",
+    bands: null,
   },
   power: {
     title: "Power",
@@ -49,11 +58,13 @@ export const METRIC_COPY: Record<MetricKey, MetricCopy> = {
     title: "7-day price outlook",
     meaning: "Where his market value is expected to go over the next week, with a range.",
     why: "Rising players grow your budget; falling ones shrink it.",
+    bands: null,
   },
   reliability: {
     title: "Reliability",
     meaning: "How likely he is to start and to play next match, from his minutes this season.",
     why: "Only players who play score — a bargain on the bench scores nothing.",
+    bands: null,
   },
   xp: {
     title: "Expected points",
@@ -82,8 +93,9 @@ export const METRIC_COPY: Record<MetricKey, MetricCopy> = {
 };
 
 /** The default percentile-to-word bands, used by any metric that doesn't
- * define its own in METRIC_COPY. Ascending; the last entry catches the rest. */
-export const DEFAULT_BANDS: { below: number; word: string }[] = [
+ * define its own in METRIC_COPY (and hasn't opted out with `bands: null`).
+ * Ascending; the last entry catches the rest. */
+export const DEFAULT_BANDS: Band[] = [
   { below: 20, word: "Very low" },
   { below: 40, word: "Low" },
   { below: 60, word: "Average" },
@@ -91,17 +103,24 @@ export const DEFAULT_BANDS: { below: number; word: string }[] = [
   { below: Infinity, word: "Very high" },
 ];
 
-/** The plain word for a within-position percentile. `of === 1` (no one
- * else at the position to rank against) always wins, even over a null
- * percentile. Otherwise a null percentile has no word. */
+/** The plain word for a within-position percentile.
+ *
+ * A metric with `bands: null` (verdict, reliability, outlook) has no
+ * percentile-based word at all — its word is its own vocabulary (the
+ * verdict label, the reliability class, the outlook direction) — so this
+ * always returns `null` for it, regardless of percentile or `of`. For a
+ * banded metric, `of === 1` (no one else at the position to rank against)
+ * wins even over a null percentile; otherwise a null percentile has no word. */
 export function bandFor(key: MetricKey, percentile: number | null, of?: number): string | null {
+  const bands = METRIC_COPY[key].bands;
+  if (bands === null) return null;
   if (of === 1) return "Only one at position";
   if (percentile === null) return null;
-  const bands = METRIC_COPY[key].bands ?? DEFAULT_BANDS;
-  for (const band of bands) {
+  const list = bands ?? DEFAULT_BANDS;
+  for (const band of list) {
     if (percentile < band.below) return band.word;
   }
-  return bands[bands.length - 1].word;
+  return list[list.length - 1].word;
 }
 
 /** `{ rank: 5, of: 190, position: "DEF" }` -> "#5 of 190 DEF"; null -> null. */

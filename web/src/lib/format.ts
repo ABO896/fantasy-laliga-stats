@@ -58,7 +58,7 @@ export function signedNumber(value: number, decimals = 1): string {
   return `${sign}${Math.abs(value).toFixed(decimals)}`;
 }
 
-/** "2026-08-06" -> "6 Aug"— a compact date for chart axes/captions. Always
+/** "2026-08-06" -> "6 Aug" — a compact date for chart axes/captions. Always
  * read as UTC: `asOf` values are UTC-midnight ISO dates, and formatting
  * them in the viewer's local timezone can roll the displayed day backward
  * or forward depending where the browser sits. */

@@ -63,6 +63,16 @@ describe("bandFor", () => {
     expect(bandFor("power", null)).toBeNull();
     expect(bandFor("power", null, 190)).toBeNull();
   });
+
+  it("has no percentile band for metrics with their own vocabulary", () => {
+    expect(bandFor("reliability", 85)).toBeNull();
+    expect(bandFor("outlook", 85)).toBeNull();
+    expect(bandFor("verdict", 85)).toBeNull();
+  });
+
+  it("still bands power, unaffected by the unbanded metrics", () => {
+    expect(bandFor("power", 85)).toBe("Very high");
+  });
 });
 
 describe("rankText", () => {
