@@ -18,7 +18,7 @@ from core.rules import Rules, find_formation, load_rules
 from core.squad_rules import SquadMember as EngineMember
 from core.squad_rules import SquadVerdict, evaluate_add, evaluate_squad
 from storage.expected_points import latest_expected_points, xp_fields
-from storage.inputs import compute_live_inputs, inputs_fields
+from storage.inputs import inputs_fields
 from storage.models import Player, PlayerSnapshot
 from storage.our_models import compute_player_analytics, score_fields
 from storage.repository import (
@@ -34,6 +34,7 @@ from storage.repository import (
     remove_squad_member,
     save_xi,
 )
+from storage.verdict import live_verdicts, verdict_fields
 
 router = APIRouter()
 
@@ -87,7 +88,7 @@ def _squad_payload(session) -> dict:
     setup = get_squad_setup(session)
     analytics = compute_player_analytics(session)
     latest_xp = latest_expected_points(session)
-    live = compute_live_inputs(session)
+    live, vmap = live_verdicts(session)
 
     # Looked up in the *full* rule set, not the league's: a shape stored
     # while premium formations were on must still be drawable after they are
@@ -127,6 +128,8 @@ def _squad_payload(session) -> dict:
                 # Plan B Task 7: reliability, points value, outlook and
                 # Power's position rank, same as the browser table.
                 **inputs_fields(live.get(m.player_id)),
+                # Plan C Task 5: the verdict label every surface agrees on.
+                **verdict_fields(vmap.get(m.player_id)),
             }
             for m in members
         ],

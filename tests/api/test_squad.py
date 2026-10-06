@@ -67,6 +67,16 @@ def test_add_returns_201(client, session):
     assert body["summary"]["memberPlayerIds"] == [1]
 
 
+def test_squad_members_carry_a_verdict_label_from_the_vocabulary(client, session):
+    from core.verdict import LABELS
+
+    seed_player(session, 1, "Keeper", "POR", 5_000_000)
+    client.post("/api/squad/players", json={"playerId": 1, "purchasePrice": 4_500_000})
+    member = client.get("/api/squad").json()["members"][0]
+    assert member["verdict"]["label"] in LABELS
+    assert isinstance(member["verdict"]["tags"], list)
+
+
 def test_add_uses_the_submitted_purchase_price_not_market_value(client, session):
     seed_player(session, 1, "Keeper", "POR", 5_000_000)
     client.post("/api/squad/players", json={"playerId": 1, "purchasePrice": 7_000_000})

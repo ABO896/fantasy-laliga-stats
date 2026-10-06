@@ -4,9 +4,10 @@ from fastapi import APIRouter
 
 from api.deps import SessionDep
 from storage.expected_points import latest_expected_points, xp_fields
-from storage.inputs import compute_live_inputs, inputs_fields
+from storage.inputs import inputs_fields
 from storage.our_models import compute_player_analytics, score_fields
 from storage.repository import get_latest_players
+from storage.verdict import live_verdicts, verdict_fields
 
 router = APIRouter()
 
@@ -16,7 +17,7 @@ def list_players(session: SessionDep):
     rows = get_latest_players(session)
     latest_xp = latest_expected_points(session)
     analytics = compute_player_analytics(session)
-    live = compute_live_inputs(session)
+    live, vmap = live_verdicts(session)
 
     as_of = rows[0][0].as_of.isoformat() if rows else None
     players = [
@@ -43,6 +44,8 @@ def list_players(session: SessionDep):
             # Plan B Task 7 — reliability, points value, outlook and Power's
             # position rank, computed once for every player this request.
             **inputs_fields(live.get(player.id)),
+            # Plan C Task 5 — the verdict label every surface agrees on.
+            **verdict_fields(vmap.get(player.id)),
         }
         for snapshot, player in rows
     ]

@@ -95,6 +95,19 @@ def test_every_suggested_move_is_legal_and_explained(world, client):
     assert len(sells) == len(set(sells))
 
 
+def test_suggested_moves_carry_a_plain_english_phrase(world, client):
+    body = client.get("/api/transfers/suggestions").json()
+    assert body["moves"]
+    for m in body["moves"]:
+        assert m["sell"]["verdict"] is not None
+        assert m["buy"]["verdict"] is not None
+        sell_label, buy_label = m["sell"]["verdict"]["label"], m["buy"]["verdict"]["label"]
+        expected = (
+            f"Sell {m['sell']['name']} ({sell_label}) → buy {m['buy']['name']} ({buy_label})"
+        )
+        assert m["phrase"] == expected
+
+
 def test_the_ceiling_is_respected_on_the_chosen_basis(world, client):
     body = client.get("/api/transfers/suggestions?max=5000000&basis=marketValue").json()
     assert body["ceiling"] == {"max": 5_000_000, "basis": "marketValue"}
