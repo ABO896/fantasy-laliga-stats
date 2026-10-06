@@ -104,6 +104,36 @@ def test_player_analytics_carries_the_live_inputs_blocks(session, client):
     assert "dataThrough" in body
 
 
+def test_player_analytics_carries_ranks_and_the_xp_card(session, client):
+    """Plan D Task 1: every metric gets a within-position rank, and the xP
+    card gets its own block."""
+    ids = _seed(session, n=5)
+    body = client.get(f"/api/players/{ids[0]}/analytics").json()
+    assert set(body["ranks"]) == {
+        "power", "pointsValue", "outlook", "reliability", "xp", "form",
+        "consistency", "momentum7",
+    }
+    assert body["ranks"]["power"]["of"] == 5
+    assert body["ranks"]["power"]["position"] == "MED"
+    assert body["ranks"]["reliability"]["position"] == "MED"
+    # This seed stores no ExpectedPointsPrediction rows, so the xP card has
+    # nothing to show yet, but the key must always be present.
+    assert body["xp"] is None
+
+
+def test_player_analytics_empty_payload_has_null_ranks_and_xp(session, client):
+    now = datetime.now(UTC)
+    p = Player(external_id="blank", name="Blank", team="T", position="DEF",
+               created_at=now, updated_at=now)
+    session.add(p)
+    session.commit()
+    session.refresh(p)
+
+    body = client.get(f"/api/players/{p.id}/analytics").json()
+    assert body["ranks"] is None
+    assert body["xp"] is None
+
+
 def test_player_analytics_404_and_bad_windows(session, client):
     ids = _seed(session, n=1)
     assert client.get("/api/players/999/analytics").status_code == 404

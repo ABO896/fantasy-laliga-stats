@@ -35,6 +35,9 @@ _EMPTY = {
     "expectedReturnEur": None,
     "inputsConfidence": None,
     "dataThrough": None,
+    # Plan D Task 1.
+    "ranks": None,
+    "xp": None,
 }
 
 

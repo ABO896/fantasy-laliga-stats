@@ -11,9 +11,11 @@ from sqlmodel import select
 from core import expected_points as xp
 from core.analytics import AVAILABILITY_FACTOR, GameweekRow
 from storage.models import (
+    ExpectedPointsPrediction,
     MarketPrediction,
     Player,
     PlayerGameweekPoints,
+    PlayerMarketDaily,
     PlayerSnapshot,
     ScrapeRun,
     SourcePrediction,
@@ -234,6 +236,112 @@ def test_power_uses_last_season_prior_and_charges_availability(session):
     assert a_hurt.power.quality_ppg == a_fit.power.quality_ppg
     assert a_hurt.power.power_ppg == pytest.approx(
         a_fit.power.power_ppg * AVAILABILITY_FACTOR["injured"])
+
+
+# --- Plan D Task 1: a within-position rank for every metric ----------------------
+
+
+def _def_squad(session, run, n=5):
+    players = [_player(session, f"def{i}", position="DEF") for i in range(n)]
+    for i, pl in enumerate(players):
+        _snap(session, run, pl.id, D1, 5_000_000 * (i + 1), 0.0, starter=80.0)
+        # More than FORM_WINDOW + a baseline slice, so form/consistency
+        # both have a value to rank.
+        for week in range(1, 11):
+            session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=pl.id,
+                                             points=2 + i, scrape_run_id=run.id))
+    session.commit()
+    return players
+
+
+def test_ranks_block_covers_every_metric_within_position(session):
+    run = _run(session)
+    defs = _def_squad(session, run)
+    other = _player(session, "med0", position="MED")
+    _snap(session, run, other.id, D1, 5_000_000, 0.0, starter=80.0)
+    for week in range(1, 6):
+        session.add(PlayerGameweekPoints(season_year=2026, week=week, player_id=other.id,
+                                         points=2, scrape_run_id=run.id))
+    session.commit()
+
+    payload = player_analytics_payload(session, defs[0].id, [7])
+    ranks = payload["ranks"]
+    for key in ("power", "pointsValue", "outlook", "reliability", "xp", "form",
+                "consistency", "momentum7"):
+        assert key in ranks, key
+    # "of" counts only same-position players with a Power value — the MED
+    # player must not be pulled into the DEF group.
+    assert ranks["power"]["of"] == len(defs)
+    assert ranks["power"]["position"] == "DEF"
+    assert ranks["reliability"]["position"] == "DEF"
+    assert ranks["form"]["position"] == "DEF"
+
+
+def test_ranks_form_is_null_without_a_recent_series(session):
+    run = _run(session)
+    p = _player(session, "blank", position="DEF")
+    _snap(session, run, p.id, D1, 5_000_000, 0.0, starter=80.0)
+    session.commit()
+
+    payload = player_analytics_payload(session, p.id, [7])
+    assert payload["ranks"]["form"] is None
+    assert payload["ranks"]["consistency"] is None
+
+
+def test_xp_block_present_when_a_prediction_is_stored(session):
+    run = _run(session)
+    p = _player(session, "withxp", position="DEF")
+    _snap(session, run, p.id, D1, 5_000_000, 0.0, starter=80.0)
+    session.add(ExpectedPointsPrediction(
+        season_year=2026, jornada=9, player_id=p.id, model_version=xp.MODEL_VERSION,
+        created_at=datetime.now(UTC), predicted=3.4, basis="form",
+        opponent="Rivals", is_home=True,
+        inputs=json.dumps({
+            "terms": {"rate": 3.4},
+            "coefficients": {"a": 1.0, "c": 0.0},
+            "rate": {"value": 3.4, "matches": 5},
+        }),
+        updated_at=datetime.now(UTC),
+    ))
+    session.commit()
+
+    payload = player_analytics_payload(session, p.id, [7])
+    assert payload["xp"]["basis"] == "form"
+    assert payload["xp"]["jornada"] == 9
+    assert payload["xp"]["opponent"] == "Rivals"
+    assert payload["xp"]["isHome"] is True
+    assert payload["xp"]["terms"] == {"rate": 3.4}
+    assert payload["xp"]["coefficients"] == {"a": 1.0, "c": 0.0}
+    assert payload["xp"]["rate"] == {"value": 3.4, "matches": 5}
+
+
+def test_xp_block_is_null_without_a_stored_prediction(session):
+    run = _run(session)
+    p = _player(session, "noxp", position="DEF")
+    _snap(session, run, p.id, D1, 5_000_000, 0.0, starter=80.0)
+    session.commit()
+
+    payload = player_analytics_payload(session, p.id, [7])
+    assert payload["xp"] is None
+
+
+def test_ranks_momentum7_prefers_daily_series_and_falls_back_to_snapshot(session):
+    run = _run(session)
+    defs = _def_squad(session, run)
+    # defs[0] has a daily series showing a clear 7-day rise.
+    for day, value in [(date(2026, 8, 25), 5_000_000), (date(2026, 9, 1), 5_500_000)]:
+        session.add(PlayerMarketDaily(season_year=2026, day=day, player_id=defs[0].id,
+                                      market_value=value, scrape_run_id=run.id))
+    # defs[1] has no daily rows at all — must fall back to snapshot momentum.
+    _snap(session, run, defs[1].id, date(2026, 8, 25), 4_000_000, 0.0, starter=80.0)
+    session.commit()
+
+    payload = player_analytics_payload(session, defs[0].id, [7])
+    assert payload["ranks"]["momentum7"]["position"] == "DEF"
+
+    other_payload = player_analytics_payload(session, defs[1].id, [7])
+    # Falls back to snapshot-derived momentum rather than being unranked.
+    assert other_payload["ranks"]["momentum7"] is not None
 
 
 # --- team_played_weeks / calendar_final_weeks ------------------------------------

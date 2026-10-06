@@ -130,6 +130,47 @@ export interface PriceOutlookBlock {
   rank: RankBlock | null;
 }
 
+/** Plan D Task 1 — the same within-position rank as `RankBlock`, plus the
+ * position code so a metric card can print "#5 of 190 DEF" without a
+ * second lookup. */
+export interface PositionRankBlock extends RankBlock {
+  position: string;
+}
+
+/** Plan D Task 1 — one entry per metric card, `null` when the player has
+ * no value for that metric. */
+export interface MetricRanks {
+  power: PositionRankBlock | null;
+  pointsValue: PositionRankBlock | null;
+  outlook: PositionRankBlock | null;
+  reliability: PositionRankBlock | null;
+  xp: PositionRankBlock | null;
+  form: PositionRankBlock | null;
+  consistency: PositionRankBlock | null;
+  momentum7: PositionRankBlock | null;
+}
+
+/** Plan D Task 1 — the xP card's own block: the latest stored jornada's
+ * prediction for this player, straight off `ExpectedPointsPrediction`. */
+export interface XpCardBlock {
+  value: number;
+  basis: string;
+  jornada: number;
+  opponent: string | null;
+  isHome: boolean | null;
+  terms: Record<string, number> | null;
+  coefficients: Record<string, number> | null;
+  rate: {
+    value: number | null;
+    matches: number;
+    recentPoints: number[];
+    halfLife: number;
+    prior: number | null;
+    priorSource: "last_season" | "position";
+    priorWeight: number;
+  } | null;
+}
+
 export interface PlayerAnalytics {
   playerId: number;
   form: FormBlock | null;
@@ -151,6 +192,11 @@ export interface PlayerAnalytics {
   expectedReturnEur?: number | null;
   inputsConfidence?: "low" | "medium" | "high" | null;
   dataThrough?: { prices: string | null; matches: number | null } | null;
+  /** Plan D Task 1 — a within-position rank for every metric card, and the
+   * xP card's own block. Both `null` only when the player has no
+   * analytics at all. */
+  ranks?: MetricRanks | null;
+  xp?: XpCardBlock | null;
 }
 
 export const DEFAULT_WINDOWS = [1, 7, 14, 30];
