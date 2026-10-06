@@ -440,6 +440,29 @@
     background: color-mix(in srgb, var(--color-verdict-neutral) 14%, transparent);
   }
 
+  /* ---- Formulas -------------------------------------------------------
+     Typeset maths for metric step tables/callouts (Formula.tsx), built
+     from plain spans rather than a maths library. */
+  .formula {
+    display: inline-flex;
+    align-items: baseline;
+    font-variant-numeric: tabular-nums;
+  }
+  .frac {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    vertical-align: middle;
+    margin: 0 2px;
+  }
+  .frac-num {
+    padding: 0 2px;
+  }
+  .frac-den {
+    padding: 0 2px;
+    border-top: 1px solid currentColor;
+  }
+
   /* ---- Tables -------------------------------------------------------- */
   /* Wide content scrolls here, never the page (UI-02). */
   .table-scroll {
