@@ -110,7 +110,6 @@ CUTOFFS = Cutoffs({"DEF": 5_000_000.0})
     ({"q": 95, "cls": "Nailed"}, "Elite"),
     ({"v": 85, "q": 60, "cls": "Regular", "confidence": "high"}, "Bargain"),
     ({"o": 90, "outlook": ("rise", 2.0, False)}, "Rising"),
-    ({"q": 70, "cls": "Rotation"}, "Rotation risk"),
     ({"v": 10, "price": 9_000_000}, "Overpriced"),
     ({"q": 10, "cls": "Fringe"}, "Avoid"),
     ({}, "Fair price"),
@@ -118,6 +117,23 @@ CUTOFFS = Cutoffs({"DEF": 5_000_000.0})
 def test_first_match_wins(overrides, label):
     v = verdict(pi(**overrides), CUTOFFS)
     assert v.label == label
+
+
+def test_rotation_risk_with_disabled_empty():
+    """Test that Rotation risk is returned when explicitly enabled."""
+    v = verdict(pi(q=70, cls="Rotation"), CUTOFFS, disabled=frozenset())
+    assert v.label == "Rotation risk"
+
+
+def test_rotation_risk_disabled_by_default_falls_through():
+    """With module default (Rotation risk disabled), a player matching only
+    that rule falls through to the next matching rule."""
+    # q=70, cls="Rotation" matches Rotation risk rule, but it's disabled by
+    # default, so it falls through. No other rules match (q > avoid_quality,
+    # no outlook direction to trigger Avoid), so it's Fair price.
+    v = verdict(pi(q=70, cls="Rotation"), CUTOFFS)
+    assert v.label != "Rotation risk"
+    assert v.label == "Fair price"
 
 
 def test_success_criterion_2():

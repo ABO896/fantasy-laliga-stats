@@ -61,7 +61,7 @@ def test_player_verdict_endpoint_returns_the_documented_shape(client, session):
     assert isinstance(body["reason"], str) and body["reason"]
     assert body["confidence"] in {"high", "medium", "low"}
     assert isinstance(body["deciding"], dict)
-    assert body["disabledLabels"] == []
+    assert body["disabledLabels"] == ["Rotation risk"]
     # No squad owns this player — the personal line is null.
     assert body["personal"] is None
     # No stored validation report yet.

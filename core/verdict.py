@@ -46,8 +46,15 @@ LABELS = (
     "Unavailable", "Unproven", "Sell high", "Elite", "Bargain", "Rising",
     "Rotation risk", "Overpriced", "Avoid", "Fair price",
 )
-#: Labels the harness could not show beat chance. Edited by Task 6 only.
-DISABLED_LABELS: frozenset[str] = frozenset()
+#: Labels the harness could not show beat chance (spec §5.3: dropped or reworked).
+#: Rotation risk — 2026-10-07 walk-forward run, 33 dates: mean minutes vs the
+#: same-day position mean −26.6 (90% CI −39.4 … −14.4, n=993, 121 players); its
+#: players played *more*. The baseline includes unproven and zero-minute players,
+#: so rework it against comparable-quality players before re-enabling.
+#: DEFAULT_THRESHOLDS unchanged: no coarse-grid neighbour beat the defaults
+#: (Elite and Rising beat chance in all 81 combinations; Bargain had no scorable
+#: outcome in any).
+DISABLED_LABELS: frozenset[str] = frozenset({"Rotation risk"})
 #: Never disabled: Unavailable/Unproven state a fact, Fair price is the fallback.
 _ALWAYS_ON = frozenset({"Unavailable", "Unproven", "Fair price"})
 
