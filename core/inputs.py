@@ -3,9 +3,10 @@
 One function, `compute_inputs`, and every caller uses it — the live app and
 the verdict validation harness alike — so what the app shows and what the
 backtest scores can never drift apart. Everything is filtered to `as_of`:
-the snapshot state is the latest at or before it, the price the latest daily
-price at or before it, and current-season points only the jornadas in
-`known_weeks` (those knowable at `as_of`; earlier seasons are used in full).
+the snapshot state is the latest at or before it, the price the more recent
+of the latest daily price and the latest snapshot value at or before it, and
+current-season points only the jornadas in `known_weeks` (those knowable at
+`as_of`; earlier seasons are used in full).
 
 Power is `storage.our_models.compute_player_analytics`' recipe exactly, on
 the visible rows. Reliability, evidence, xP over the next `horizon` jornadas,
@@ -132,8 +133,10 @@ def _state(
     for s in data.snapshots.get(pid, []):
         if s.as_of <= as_of and (snap is None or s.as_of >= snap.as_of):
             snap = s
+    # The more recent of the daily price and the snapshot's market value;
+    # on a tie the daily price (the published one) wins.
     days = [d for d in data.prices.get(pid, {}) if d <= as_of]
-    if days:
+    if days and (snap is None or max(days) >= snap.as_of):
         price_as_of = max(days)
         price = data.prices[pid][price_as_of]
     elif snap is not None:

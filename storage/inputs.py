@@ -24,6 +24,7 @@ from core import market_v2 as m2
 from core import transfers as tr
 from core.config import get_settings
 from core.fixture_difficulty import FixtureView
+from core.freshness import madrid_date
 from core.inputs import InputsData, PlayerBase, PlayerInputs, SnapshotState, UpcomingMatch
 from core.inputs import compute_inputs as _compute_inputs
 from core.ranks import Rank
@@ -162,7 +163,9 @@ def compute_live_inputs(
     database, then `core.inputs.compute_inputs` does the rest."""
     now = now or datetime.now(UTC)
     season = get_settings().current_season_year
-    as_of = now.date()
+    # The market's (Madrid) calendar date — the date every refresh stamps
+    # its rows with — never the UTC date, which lags it after midnight.
+    as_of = madrid_date(now)
 
     data = load_inputs_data(session, season)
     known_weeks = live_known_weeks(session, season, now)
@@ -261,7 +264,8 @@ def inputs_payload(i: PlayerInputs) -> dict:
         "replacement": _round(i.replacement, 2),
         "price": i.price,
         "cashPerPoint": load_rules().cash_per_point,
-        "horizon": len(i.xpts.matches) if i.xpts else LIVE_HORIZON,
+        "horizon": LIVE_HORIZON,  # jornadas looked ahead (the copy's "next 3")
+        "matchCount": len(i.xpts.matches) if i.xpts else 0,  # matches inside them
         "matches": (
             [{"opponent": o, "isHome": h, "xp": round(x, 2)} for o, h, x in i.xpts.matches]
             if i.xpts else []

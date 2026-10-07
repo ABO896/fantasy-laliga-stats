@@ -88,3 +88,13 @@ class TestIsStale:
         two hours wrong in summer."""
         naive = datetime(2026, 8, 21, 16, 0)  # 18:00 Madrid
         assert is_stale(naive, now=madrid(2026, 8, 22, 10, 0)) is True
+
+
+def test_madrid_date_leads_utc_after_midnight():
+    from datetime import date
+
+    from core.freshness import madrid_date
+
+    assert madrid_date(datetime(2026, 9, 20, 22, 30, tzinfo=UTC)) == date(2026, 9, 21)  # CEST
+    assert madrid_date(datetime(2026, 12, 20, 22, 30, tzinfo=UTC)) == date(2026, 12, 20)  # CET
+    assert madrid_date(datetime(2026, 12, 20, 23, 30)) == date(2026, 12, 21)  # naive = UTC

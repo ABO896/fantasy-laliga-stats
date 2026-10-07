@@ -180,3 +180,23 @@ def test_source_only_player_is_low_confidence():
     assert got.reliability.basis == "source-only"
     assert got.confidence == "low"
     assert got.evidence.matches_with_minutes == 0
+
+
+# --- price freshness: the more recent of daily price and snapshot (final review #5) -------
+
+
+def test_newer_snapshot_price_beats_an_older_daily_price():
+    snaps = [SnapshotState(date(2026, 9, 4), 7_000_000, "available", None)]
+    data = make_data([player(1, points={1: 6, 2: 8, 3: 7}, price=5_000_000, snaps=snaps)])
+    # make_data dates the daily price 2026-09-01; the snapshot is newer.
+    got = run(data)[1]
+    assert (got.price, got.price_as_of) == (7_000_000, date(2026, 9, 4))
+
+
+def test_daily_price_wins_a_tie_and_when_newer():
+    tie = [SnapshotState(date(2026, 9, 1), 7_000_000, "available", None)]
+    older = [SnapshotState(date(2026, 8, 20), 7_000_000, "available", None)]
+    for snaps in (tie, older):
+        data = make_data([player(1, points={1: 6, 2: 8, 3: 7}, price=5_000_000, snaps=snaps)])
+        got = run(data)[1]
+        assert (got.price, got.price_as_of) == (5_000_000, date(2026, 9, 1))

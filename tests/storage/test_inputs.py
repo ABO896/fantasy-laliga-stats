@@ -4,7 +4,7 @@ today (Plan B Task 6)."""
 import json
 from datetime import UTC, date, datetime
 
-from storage.inputs import compute_live_inputs, live_upcoming
+from storage.inputs import compute_live_inputs, inputs_payload, live_upcoming
 from storage.market_v2 import MODEL_VERSION
 from storage.models import (
     Fixture,
@@ -162,3 +162,31 @@ def test_outlook_comes_from_stored_v2(session):
     assert live[pl.id].outlook is not None
     assert live[pl.id].outlook.expected_pct == 3.5
     assert live[pl.id].outlook.made_on == as_of
+
+
+# --- the Madrid date (final review #14) and the reported horizon (#15) ------------------
+
+
+def test_as_of_is_the_madrid_date_just_after_midnight(session):
+    """00:30 Madrid on 2026-09-21 is still 2026-09-20 in UTC; the refresh
+    stamps today's snapshot with the local (Madrid) date, so it must count."""
+    run = _run(session)
+    pl = _player(session, "madrid")
+    _snap(session, run, pl.id, date(2026, 9, 20), mv=5_000_000)
+    _snap(session, run, pl.id, date(2026, 9, 21), mv=6_000_000)
+    now = datetime(2026, 9, 20, 22, 30, tzinfo=UTC)  # 00:30 CEST, Sep 21
+
+    live = compute_live_inputs(session, now=now)
+    assert live[pl.id].price_as_of == date(2026, 9, 21)
+    assert live[pl.id].price == 6_000_000
+
+
+def test_payload_reports_the_requested_horizon_and_the_match_count(session):
+    run = _run(session)
+    pl = _player(session, "horizon")
+    _snap(session, run, pl.id, date(2026, 9, 20))
+    live = compute_live_inputs(session, now=datetime(2026, 9, 20, 12, tzinfo=UTC))
+
+    payload = inputs_payload(live[pl.id])["pointsValue"]
+    assert payload["horizon"] == 3
+    assert payload["matchCount"] == len(payload["matches"])

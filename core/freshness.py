@@ -20,7 +20,7 @@ conservative in the safe direction: a spurious prompt costs a click, a
 missed one costs a transfer decision made on yesterday's numbers.
 """
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 #: Where the market lives. The update is a wall-clock event in Madrid, so it
@@ -42,6 +42,12 @@ def _as_aware(moment: datetime) -> datetime:
     that is what a naive value means here — reading one as local time would
     be two hours wrong in summer, in the direction that hides staleness."""
     return moment if moment.tzinfo is not None else moment.replace(tzinfo=UTC)
+
+
+def madrid_date(now: datetime) -> date:
+    """The market's calendar date at `now` — what a refresh stamps its rows
+    with. A naive `now` is read as UTC (see `_as_aware`)."""
+    return _as_aware(now).astimezone(MARKET_TIMEZONE).date()
 
 
 def last_market_update(now: datetime) -> datetime:
