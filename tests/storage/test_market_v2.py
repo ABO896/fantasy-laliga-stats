@@ -1,6 +1,7 @@
 """storage/market_v2.py — assembling rows, walk-forward generation, scoring
 at 7 days, and the v2 track record (Plan B Task 4)."""
 
+import json
 from datetime import UTC, datetime, timedelta
 from datetime import date as date_cls
 
@@ -8,7 +9,14 @@ import pytest
 from sqlmodel import select
 
 from core import market_v2 as m2
-from storage.market_v2 import build_rows, refresh_market_v2, v2_track_record
+from storage.market_v2 import (
+    build_rows,
+    latest_outlooks,
+    outlook_history,
+    outlooks_as_of,
+    refresh_market_v2,
+    v2_track_record,
+)
 from storage.models import (
     ExternalMatch,
     MarketPrediction,
@@ -244,3 +252,96 @@ def test_track_record_reports_naive_baseline_and_coverage(session):
     assert "intervalCoverage" in record
     assert "live" in record["ours"] and "retroactive" in record["ours"]
     assert record["ours"]["retroactive"]["scored"] > 0
+
+
+# --- latest_outlooks: per player, with a staleness cap (final review #1) --------------
+
+
+def _pred(session, made_on, pid, pct=1.0, direction="rise"):
+    session.add(MarketPrediction(
+        made_on=made_on, player_id=pid, model_version=m2.MODEL_VERSION, predicted_pct=pct,
+        direction=direction, confidence="moderate",
+        inputs=json.dumps({"lower": pct - 1, "upper": pct + 1, "dropRisk": False,
+                           "basis": "ridge", "terms": {}}),
+        generated_at=NOW,
+    ))
+
+
+def _three_players(session):
+    return [_player(session, f"p{i}", "MED", "Club A") for i in range(3)]
+
+
+def test_part_filled_latest_day_keeps_everyone_elses_outlook(session):
+    """A Quick + my players refresh writes today's row for a handful of
+    players only — everyone else must keep yesterday's outlook."""
+    a, b, c = _three_players(session)
+    d1, d2 = D0, D0 + timedelta(days=1)
+    for p in (a, b, c):
+        _pred(session, d1, p.id, pct=1.0)
+    _pred(session, d2, a.id, pct=5.0)  # only `a` was refreshed on d2
+    session.commit()
+
+    out = latest_outlooks(session, d2)
+    assert set(out) == {a.id, b.id, c.id}
+    assert out[a.id].expected_pct == 5.0 and out[a.id].made_on == d2
+    assert out[b.id].expected_pct == 1.0 and out[b.id].made_on == d1
+
+
+def test_outlook_older_than_seven_days_is_dropped(session):
+    a, b, _c = _three_players(session)
+    on = D0 + timedelta(days=10)
+    _pred(session, on - timedelta(days=7), a.id)  # exactly 7 days old: kept
+    _pred(session, on - timedelta(days=8), b.id)  # 8 days old: stale
+    session.commit()
+
+    out = latest_outlooks(session, on)
+    assert set(out) == {a.id}
+
+
+def test_latest_outlooks_ignores_rows_after_on(session):
+    a, _b, _c = _three_players(session)
+    _pred(session, D0, a.id, pct=1.0)
+    _pred(session, D0 + timedelta(days=2), a.id, pct=9.0)
+    session.commit()
+    assert latest_outlooks(session, D0 + timedelta(days=1))[a.id].expected_pct == 1.0
+
+
+def test_history_lookup_uses_the_same_per_player_rule(session):
+    """The harness's in-memory lookup and the live query agree on every day."""
+    a, b, c = _three_players(session)
+    for i in range(12):
+        day = D0 + timedelta(days=i)
+        _pred(session, day, a.id, pct=float(i))
+        if i < 3:
+            _pred(session, day, b.id, pct=float(i))  # b stops being refreshed on day 2
+        if i % 4 == 0:
+            _pred(session, day, c.id, pct=float(i))
+    session.commit()
+
+    history = outlook_history(session)
+    for i in range(14):
+        on = D0 + timedelta(days=i)
+        assert outlooks_as_of(history, on) == latest_outlooks(session, on)
+
+
+def test_price_level_carries_the_last_known_value_forward(session):
+    """On a part-filled day the price-level percentile is computed over every
+    player's latest value (≤ 7 days old), not just the few with a row."""
+    run = _run(session)
+    players = [_player(session, f"m{i}", "MED", "Club A") for i in range(5)]
+    d1, d2 = D0, D0 + timedelta(days=1)
+    for rank, p in enumerate(players):
+        session.add(PlayerMarketDaily(season_year=SEASON, day=d1, player_id=p.id,
+                                      market_value=1_000_000 * (rank + 1),
+                                      scrape_run_id=run.id))
+    cheapest = players[0]
+    session.add(PlayerMarketDaily(season_year=SEASON, day=d2, player_id=cheapest.id,
+                                  market_value=1_000_000, scrape_run_id=run.id))
+    session.commit()
+
+    rows = {(r.player_id, r.day): r for r in build_rows(session, SEASON)}
+    # Alone on d2 it would rank top of a one-player position; carried forward
+    # it is still the cheapest of five.
+    assert rows[(cheapest.id, d2)].x["price_level"] == pytest.approx(
+        rows[(cheapest.id, d1)].x["price_level"]
+    )

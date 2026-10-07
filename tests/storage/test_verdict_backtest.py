@@ -218,13 +218,16 @@ def _seed(session):
 
 
 def _outlook(session, pid, predicted_pct, direction, drop_risk=False):
-    session.add(MarketPrediction(
-        made_on=D0, player_id=pid, model_version="market-v2", predicted_pct=predicted_pct,
-        direction=direction, confidence="moderate",
-        inputs=json.dumps({"lower": predicted_pct - 3, "upper": predicted_pct + 3,
-                           "dropRisk": drop_risk, "basis": "ridge", "terms": {}}),
-        generated_at=datetime.now(UTC),
-    ))
+    """The same outlook stored for every market day — outlooks older than
+    7 days are dropped (`storage.market_v2.OUTLOOK_MAX_AGE_DAYS`)."""
+    for day in MARKET_DAYS:
+        session.add(MarketPrediction(
+            made_on=day, player_id=pid, model_version="market-v2",
+            predicted_pct=predicted_pct, direction=direction, confidence="moderate",
+            inputs=json.dumps({"lower": predicted_pct - 3, "upper": predicted_pct + 3,
+                               "dropRisk": drop_risk, "basis": "ridge", "terms": {}}),
+            generated_at=datetime.now(UTC),
+        ))
     session.commit()
 
 
@@ -300,3 +303,36 @@ def test_write_report_round_trips(session):
     stored = session.get(ModelReport, "verdict-validation")
     assert stored is not None
     assert json.loads(stored.payload) == report
+
+
+# --- the harness's outlooks follow the live per-player rule (final review #1) -------------
+
+
+def _drop_outlooks_after(session, pid, day):
+    for row in session.exec(
+        select(MarketPrediction)
+        .where(MarketPrediction.player_id == pid)
+        .where(MarketPrediction.made_on > day)
+    ).all():
+        session.delete(row)
+    session.commit()
+
+
+def test_harness_keeps_a_players_outlook_on_a_part_filled_day(session):
+    """Everyone else was refreshed on the probe day; rising_med last 3 days
+    earlier — he keeps his own latest outlook, as live does."""
+    ids = _seed(session)
+    probe = date(2026, 8, 20)
+    _drop_outlooks_after(session, ids["rising_med"], probe - timedelta(days=3))
+    assert verdicts_on(load_session_data(session, SEASON), probe)[ids["rising_med"]].label == (
+        "Rising"
+    )
+
+
+def test_harness_drops_an_outlook_older_than_seven_days(session):
+    ids = _seed(session)
+    probe = date(2026, 8, 20)
+    _drop_outlooks_after(session, ids["rising_med"], probe - timedelta(days=8))
+    assert verdicts_on(load_session_data(session, SEASON), probe)[ids["rising_med"]].label != (
+        "Rising"
+    )

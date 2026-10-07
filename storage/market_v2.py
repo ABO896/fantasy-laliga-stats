@@ -13,7 +13,8 @@ from collections import defaultdict
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 
-from sqlmodel import Session, delete, select
+from sqlalchemy import and_
+from sqlmodel import Session, delete, func, select
 
 from core import expected_points as xp
 from core import jornadas as jr
@@ -36,6 +37,12 @@ from storage.models import (
 )
 
 MODEL_VERSION = m2.MODEL_VERSION
+#: An outlook made more than this many days before the date asked about is
+#: dropped rather than shown as current (final review #1) — each player keeps
+#: his own latest outlook, so a part-filled refresh day never wipes everyone
+#: it skipped. The same cap bounds how far `build_rows` carries a price
+#: forward for the price-level percentile.
+OUTLOOK_MAX_AGE_DAYS = 7
 
 
 @dataclass(frozen=True)
@@ -169,9 +176,19 @@ def build_rows(session: Session, season: int) -> list[m2.Row]:
 
     last_season_mean = last_season_means(session, season)
 
-    # Cross-sectional percentile, per day, within position.
+    # Cross-sectional percentile, per day, within position — over each
+    # player's latest value ≤ that day (carried forward up to
+    # OUTLOOK_MAX_AGE_DAYS), so a part-filled refresh day still ranks a
+    # player among his whole position rather than the few refreshed.
+    sorted_days = {pid: sorted(ds) for pid, ds in days_by_player.items()}
     percentile_by_day: dict[date, dict[int, float]] = {}
-    for day, vals in values_by_day.items():
+    for day in values_by_day:
+        oldest = day - timedelta(days=OUTLOOK_MAX_AGE_DAYS)
+        vals: dict[int, int] = {}
+        for pid, ds in sorted_days.items():
+            idx = bisect.bisect_right(ds, day) - 1
+            if idx >= 0 and ds[idx] >= oldest:
+                vals[pid] = values_by_player[pid][ds[idx]]
         positions = {pid: player_by_id[pid].position for pid in vals if pid in player_by_id}
         percentile_by_day[day] = {
             pid: r.percentile for pid, r in rk.position_ranks(vals, positions).items()
@@ -347,31 +364,93 @@ def refresh_market_v2(
 # --- read models -----------------------------------------------------------------------
 
 
+#: Per player, his stored outlooks' `made_on` dates (ascending) and the
+#: outlooks themselves, index-aligned — what the walk-forward harness bisects.
+OutlookHistory = dict[int, tuple[list[date], list[m2.Outlook]]]
+
+
+def outlook_from_row(
+    made_on: date, predicted_pct: float, direction: str, inputs_json: str
+) -> m2.Outlook:
+    """The one decoder from a stored `MarketPrediction` row to an `Outlook` —
+    shared by the live read model and the verdict harness."""
+    inputs = json.loads(inputs_json)
+    return m2.Outlook(
+        expected_pct=predicted_pct,
+        direction=direction,
+        lower=inputs.get("lower", predicted_pct),
+        upper=inputs.get("upper", predicted_pct),
+        drop_risk=inputs.get("dropRisk", False),
+        basis=inputs.get("basis", ""),
+        terms=inputs.get("terms", {}),
+        made_on=made_on,
+    )
+
+
+_ROW_COLUMNS = (
+    MarketPrediction.player_id,
+    MarketPrediction.made_on,
+    MarketPrediction.predicted_pct,
+    MarketPrediction.direction,
+    MarketPrediction.inputs,
+)
+
+
 def latest_outlooks(session: Session, on: date | None = None) -> dict[int, m2.Outlook]:
-    """The stored predictions for the latest `made_on` ≤ `on` (default: the
-    latest `made_on` stored)."""
-    query = select(MarketPrediction).where(MarketPrediction.model_version == MODEL_VERSION)
-    if on is not None:
-        query = query.where(MarketPrediction.made_on <= on)
-    rows = session.exec(query).all()
-    if not rows:
-        return {}
-    made_on = max(r.made_on for r in rows)
+    """Per player, his stored prediction with the latest `made_on` ≤ `on`
+    (default: the latest `made_on` stored), dropped when older than
+    `OUTLOOK_MAX_AGE_DAYS`. Reads only those rows."""
+    if on is None:
+        on = session.exec(
+            select(func.max(MarketPrediction.made_on))
+            .where(MarketPrediction.model_version == MODEL_VERSION)
+        ).one()
+        if on is None:
+            return {}
+    oldest = on - timedelta(days=OUTLOOK_MAX_AGE_DAYS)
+    latest = (
+        select(MarketPrediction.player_id, func.max(MarketPrediction.made_on).label("made_on"))
+        .where(MarketPrediction.model_version == MODEL_VERSION)
+        .where(MarketPrediction.made_on <= on)
+        .where(MarketPrediction.made_on >= oldest)
+        .group_by(MarketPrediction.player_id)
+        .subquery()
+    )
+    rows = session.exec(
+        select(*_ROW_COLUMNS)
+        .join(latest, and_(MarketPrediction.player_id == latest.c.player_id,
+                           MarketPrediction.made_on == latest.c.made_on))
+        .where(MarketPrediction.model_version == MODEL_VERSION)
+    ).all()
+    return {pid: outlook_from_row(made_on, pct, direction, inputs)
+            for pid, made_on, pct, direction, inputs in rows}
+
+
+def outlook_history(session: Session) -> OutlookHistory:
+    """Every stored `market-v2` outlook, per player and oldest first — loaded
+    once so the harness's per-date lookup (`outlooks_as_of`) is in memory."""
+    rows = session.exec(
+        select(*_ROW_COLUMNS)
+        .where(MarketPrediction.model_version == MODEL_VERSION)
+        .order_by(MarketPrediction.player_id, MarketPrediction.made_on)
+    ).all()
+    out: OutlookHistory = {}
+    for pid, made_on, pct, direction, inputs in rows:
+        dates, outlooks = out.setdefault(pid, ([], []))
+        dates.append(made_on)
+        outlooks.append(outlook_from_row(made_on, pct, direction, inputs))
+    return out
+
+
+def outlooks_as_of(history: OutlookHistory, on: date) -> dict[int, m2.Outlook]:
+    """`latest_outlooks`' rule over an in-memory `outlook_history`: per player,
+    the latest `made_on` ≤ `on`, unless older than `OUTLOOK_MAX_AGE_DAYS`."""
+    oldest = on - timedelta(days=OUTLOOK_MAX_AGE_DAYS)
     out: dict[int, m2.Outlook] = {}
-    for r in rows:
-        if r.made_on != made_on:
-            continue
-        inputs = json.loads(r.inputs)
-        out[r.player_id] = m2.Outlook(
-            expected_pct=r.predicted_pct,
-            direction=r.direction,
-            lower=inputs.get("lower", r.predicted_pct),
-            upper=inputs.get("upper", r.predicted_pct),
-            drop_risk=inputs.get("dropRisk", False),
-            basis=inputs.get("basis", ""),
-            terms=inputs.get("terms", {}),
-            made_on=made_on,
-        )
+    for pid, (dates, outlooks) in history.items():
+        idx = bisect.bisect_right(dates, on) - 1
+        if idx >= 0 and dates[idx] >= oldest:
+            out[pid] = outlooks[idx]
     return out
 
 

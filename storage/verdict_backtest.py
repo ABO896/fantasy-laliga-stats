@@ -17,7 +17,6 @@ combination, never writing (see `run_grid`).
 """
 
 import argparse
-import bisect
 import itertools
 import json
 from collections import defaultdict
@@ -40,8 +39,8 @@ from core.verdict_harness import Observation
 from storage.db import as_utc
 from storage.expected_points import ODDS_SOURCE
 from storage.inputs import load_inputs_data
-from storage.market_v2 import load_schedule
-from storage.models import ExternalMatch, Fixture, MarketPrediction, ModelReport
+from storage.market_v2 import OutlookHistory, load_schedule, outlook_history, outlooks_as_of
+from storage.models import ExternalMatch, Fixture, ModelReport
 
 REPORT_NAME = "verdict-validation"
 
@@ -113,43 +112,6 @@ def historical_upcoming(
     return out
 
 
-# --- as-of market outlooks -------------------------------------------------------------
-
-
-def _outlook_snapshots(
-    session: Session,
-) -> tuple[list[date], dict[date, dict[int, m2.Outlook]]]:
-    """Every stored `market-v2` outlook, grouped by `made_on` — loaded once
-    so a per-date "latest `made_on` ≤ d" lookup (the same rule
-    `storage.market_v2.latest_outlooks` applies) is an in-memory bisect
-    rather than a query per date."""
-    rows = session.exec(
-        select(MarketPrediction).where(MarketPrediction.model_version == m2.MODEL_VERSION)
-    ).all()
-    by_date: dict[date, dict[int, m2.Outlook]] = defaultdict(dict)
-    for r in rows:
-        inputs = json.loads(r.inputs)
-        by_date[r.made_on][r.player_id] = m2.Outlook(
-            expected_pct=r.predicted_pct,
-            direction=r.direction,
-            lower=inputs.get("lower", r.predicted_pct),
-            upper=inputs.get("upper", r.predicted_pct),
-            drop_risk=inputs.get("dropRisk", False),
-            basis=inputs.get("basis", ""),
-            terms=inputs.get("terms", {}),
-            made_on=r.made_on,
-        )
-    dates = sorted(by_date)
-    return dates, dict(by_date)
-
-
-def _outlooks_on(
-    dates: list[date], by_date: dict[date, dict[int, m2.Outlook]], d: date
-) -> dict[int, m2.Outlook]:
-    idx = bisect.bisect_right(dates, d) - 1
-    return by_date[dates[idx]] if idx >= 0 else {}
-
-
 # --- per-season state, reused across every date (and every grid point) -----------------
 
 
@@ -158,8 +120,7 @@ class SessionData:
     data: InputsData
     ends: dict[int, date]
     schedule_rows: list[ScheduleRow]
-    outlook_dates: list[date]
-    outlook_by_date: dict[date, dict[int, m2.Outlook]]
+    outlooks: OutlookHistory
     thresholds: Thresholds = DEFAULT_THRESHOLDS
     disabled: frozenset = frozenset()
     horizon: int = 3
@@ -176,8 +137,7 @@ def load_session_data(
     schedule = load_schedule(session, season)
     ends = jr.week_end_dates(schedule)
     schedule_rows = _season_schedule_rows(session, season)
-    outlook_dates, outlook_by_date = _outlook_snapshots(session)
-    return SessionData(data, ends, schedule_rows, outlook_dates, outlook_by_date,
+    return SessionData(data, ends, schedule_rows, outlook_history(session),
                         thresholds, disabled, horizon, class_thresholds)
 
 
@@ -185,7 +145,9 @@ def _inputs_and_verdicts(
     session_data: SessionData, d: date
 ) -> tuple[dict[int, PlayerInputs], dict[int, Verdict]]:
     kw = jr.known_weeks(session_data.ends, d)
-    outlooks = _outlooks_on(session_data.outlook_dates, session_data.outlook_by_date, d)
+    # Per player, his latest outlook ≤ d within the staleness cap — the
+    # live rule (`storage.market_v2.latest_outlooks`), in memory.
+    outlooks = outlooks_as_of(session_data.outlooks, d)
     upcoming = historical_upcoming(session_data.schedule_rows, d, session_data.horizon)
     inputs = compute_inputs(session_data.data, d, kw, upcoming, outlooks,
                              horizon=session_data.horizon,
