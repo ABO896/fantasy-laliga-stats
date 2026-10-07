@@ -47,14 +47,17 @@ LABELS = (
     "Rotation risk", "Overpriced", "Avoid", "Fair price",
 )
 #: Labels the harness could not show beat chance (spec §5.3: dropped or reworked).
-#: Rotation risk — 2026-10-07 walk-forward run, 33 dates: mean minutes vs the
-#: same-day position mean −26.6 (90% CI −39.4 … −14.4, n=993, 121 players); its
-#: players played *more*. The baseline includes unproven and zero-minute players,
-#: so rework it against comparable-quality players before re-enabling.
-#: DEFAULT_THRESHOLDS unchanged: no coarse-grid neighbour beat the defaults
-#: (Elite and Rising beat chance in all 81 combinations; Bargain had no scorable
-#: outcome in any).
-DISABLED_LABELS: frozenset[str] = frozenset({"Rotation risk"})
+#: Walk-forward re-run 2026-10-07 (final review), 33 dates, baseline = eligible
+#: players only (available, past the evidence floor), every label enabled:
+#: - Rotation risk — mean minutes vs the same-day position mean +7.7, 90% CI
+#:   −5.1 … +19.9 (n=993, 121 players): ci_low ≤ 0, stays disabled.
+#: - Sell high — beats chance (+10.4, CI +9.7 … +11.1, n=2175) but loses to plain
+#:   momentum: the bottom-15% 7-day movers per position score +15.1 (n=1385).
+#:   Disabled until it beats that (final review ruling #2; the earlier run had
+#:   +7.9 vs +13.8).
+#: Bargain had no scorable outcome (n=0) and stays enabled; Elite, Rising, Avoid
+#: and Overpriced clear zero. DEFAULT_THRESHOLDS unchanged.
+DISABLED_LABELS: frozenset[str] = frozenset({"Rotation risk", "Sell high"})
 #: Never disabled: Unavailable/Unproven state a fact, Fair price is the fallback.
 _ALWAYS_ON = frozenset({"Unavailable", "Unproven", "Fair price"})
 

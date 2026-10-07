@@ -115,8 +115,15 @@ CUTOFFS = Cutoffs({"DEF": 5_000_000.0})
     ({}, "Fair price"),
 ])
 def test_first_match_wins(overrides, label):
-    v = verdict(pi(**overrides), CUTOFFS)
+    # The rule table itself, every label enabled (DISABLED_LABELS is tested below).
+    v = verdict(pi(**overrides), CUTOFFS, disabled=frozenset())
     assert v.label == label
+
+
+def test_sell_high_disabled_by_default_falls_through():
+    """Final review #2: Sell high lost to plain momentum, so it is disabled."""
+    v = verdict(pi(price=9_000_000, outlook=("fall", -2.5, True), minutes_trend=-20), CUTOFFS)
+    assert v.label != "Sell high"
 
 
 def test_rotation_risk_with_disabled_empty():
