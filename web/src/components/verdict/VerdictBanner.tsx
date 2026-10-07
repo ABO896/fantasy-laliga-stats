@@ -1,6 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
-import { fetchPlayerVerdict, type PersonalLine } from "../../api-client/verdict";
+import type { PersonalLine } from "../../api-client/verdict";
+import { usePlayerVerdict } from "./usePlayerVerdict";
 import VerdictChip from "./VerdictChip";
 
 /** One glyph per `PersonalLine.kind` — a quick visual read before the
@@ -14,13 +13,9 @@ const PERSONAL_ICON: Record<PersonalLine["kind"], string> = {
   no_improvement: "–",
 };
 
-/** Mirrors `TransfersPage.tsx`'s own `parseMax` — an absent or malformed
- * `?max=` degrades to "no ceiling", never to `NaN`. */
-function parseMax(raw: string | null): number | null {
-  if (raw === null || raw.trim() === "") return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n >= 0 ? n : null;
-}
+/** Labels that make no forward claim (`core.verdict_harness.CLAIMS`): a
+ * fact or the fallback, so there is nothing to validate. */
+const NO_CLAIM = new Set(["Unavailable", "Unproven", "Fair price"]);
 
 /**
  * The player page's decision-first banner (Plan C, Task 6). Fetches its
@@ -29,14 +24,7 @@ function parseMax(raw: string | null): number | null {
  * shown this label beats chance — so the page only has to mount it.
  */
 export default function VerdictBanner({ playerId }: { playerId: number }) {
-  const [searchParams] = useSearchParams();
-  const max = parseMax(searchParams.get("max"));
-
-  const { data, isLoading, isError } = useQuery({
-    queryKey: ["player-verdict", playerId, max],
-    queryFn: () => fetchPlayerVerdict(playerId, max),
-    retry: false,
-  });
+  const { data, isLoading, isError } = usePlayerVerdict(playerId);
 
   if (isLoading) return <p className="state-note">Loading verdict…</p>;
   if (isError || !data) return null;
@@ -62,11 +50,16 @@ export default function VerdictBanner({ playerId }: { playerId: number }) {
           {data.personal.text}
         </p>
       )}
-      {data.validation && !data.validation.beatsChance && (
-        <p className="state-note">
-          This label hasn't yet beaten chance on our history — treat it as a hint.
-        </p>
-      )}
+      {!NO_CLAIM.has(data.label) &&
+        (data.validation === null || data.validation.n === 0 ? (
+          <p className="state-note">Not yet validated on our history — treat it as a hint.</p>
+        ) : (
+          !data.validation.beatsChance && (
+            <p className="state-note">
+              This label hasn't yet beaten chance on our history — treat it as a hint.
+            </p>
+          )
+        ))}
     </section>
   );
 }

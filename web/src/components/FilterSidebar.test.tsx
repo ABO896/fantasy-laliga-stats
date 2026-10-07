@@ -268,3 +268,19 @@ describe("FilterSidebar", () => {
     });
   });
 });
+
+describe("FilterSidebar — disabled verdict labels (final review #11)", () => {
+  it("offers no checkbox for a label live verdicts never give", () => {
+    render(
+      <FilterSidebar
+        value={EMPTY}
+        onChange={vi.fn()}
+        players={[buildPlayer({ playerId: 1 })]}
+        disabledLabels={["Rotation risk", "Sell high"]}
+      />,
+    );
+    expect(screen.queryByLabelText("Rotation risk")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Sell high")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Elite")).toBeInTheDocument();
+  });
+});

@@ -58,6 +58,7 @@ const POINTS_VALUE: PointsValueBlock = {
   price: 26_000_000,
   cashPerPoint: 100_000,
   horizon: 3,
+  matchCount: 2,
   matches: [
     { opponent: "Betis", isHome: true, xp: 3.1 },
     { opponent: "Girona", isHome: false, xp: 3.0 },
@@ -233,5 +234,25 @@ describe("buildVerdictSteps", () => {
   it("omits the checked-first row for the first rule in priority order", () => {
     const { steps } = buildVerdictSteps("Unavailable", { availability: "injured" }, "Injured.");
     expect(steps.some((s) => s.step === "Checked first")).toBe(false);
+  });
+});
+
+describe("the two xP numbers say which is which (final review #13)", () => {
+  it("points value's xP is the 3-jornada window from our own start chance", () => {
+    const { steps } = buildPointsValueSteps(POINTS_VALUE);
+    expect(steps[0].step).toBe("Expected points, next 3 jornadas");
+    expect(steps[0].meaning).toMatch(/our window xP, from our own start chance/);
+  });
+
+  it("the xP card is the stored next-jornada figure from the source's starter probability", () => {
+    const { steps } = buildXpSteps({
+      value: 4.1, basis: "form+starter+odds", jornada: 7, opponent: "Betis", isHome: true,
+      terms: {}, coefficients: null, rate: null,
+    } as XpCardBlock);
+    expect(steps.at(-1)).toEqual({
+      step: "Which xP",
+      value: "next jornada",
+      meaning: "stored next-jornada xP, from the source's starter probability",
+    });
   });
 });

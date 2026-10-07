@@ -99,9 +99,9 @@ export function buildPointsValueSteps(
       : "no fixtures in the window";
   const steps: Step[] = [
     {
-      step: `Expected points next ${block.horizon}`,
+      step: `Expected points, next ${block.horizon} jornadas`,
       value: num(block.xpts),
-      meaning: opponents,
+      meaning: `our window xP, from our own start chance — ${opponents}`,
     },
     {
       step: "Replacement level",
@@ -276,6 +276,12 @@ export function buildXpSteps(block: XpCardBlock): Built {
       meaning: `recency-weighted over ${block.rate.matches} matches, shrunk toward ${num(block.rate.prior)} (${block.rate.priorSource === "last_season" ? "last season" : "position average"})`,
     });
   }
+  // Not the points-value card's window xP: say which figure this is.
+  steps.push({
+    step: "Which xP",
+    value: "next jornada",
+    meaning: "stored next-jornada xP, from the source's starter probability",
+  });
   const headline: Step = {
     step: "Expected points",
     value: num(block.value, 1),

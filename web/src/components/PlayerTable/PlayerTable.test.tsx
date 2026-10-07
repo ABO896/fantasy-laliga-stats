@@ -197,7 +197,11 @@ describe("PlayerTable — 7d outlook column (Task 7)", () => {
   it("renders a signed percentage and marks drop risk in red", () => {
     const players = [
       buildPlayer({ playerId: 1, name: "Safe", outlookPct: 2.1, dropRisk: false }),
-      buildPlayer({ playerId: 2, name: "At Risk", outlookPct: -4.5, dropRisk: true }),
+      buildPlayer({ playerId: 2, name: "At Risk", outlookPct: -4.5, dropRisk: true,
+                    outlookDirection: "fall" }),
+      // Final review #10: drop risk on a predicted rise is a marker, not red.
+      buildPlayer({ playerId: 3, name: "Rise With Risk", outlookPct: 3.3, dropRisk: true,
+                    outlookDirection: "rise" }),
     ];
 
     render(
@@ -212,6 +216,9 @@ describe("PlayerTable — 7d outlook column (Task 7)", () => {
     expect(riskyCell.className).toContain("destructive");
     const safeCell = within(table).getByText("+2.10%");
     expect(safeCell.className).not.toContain("destructive");
+    const risingWithRisk = within(table).getByText(/\+3\.30%/);
+    expect(risingWithRisk.className).not.toContain("destructive");
+    expect(risingWithRisk.getAttribute("title")).toMatch(/drop risk/i);
   });
 });
 

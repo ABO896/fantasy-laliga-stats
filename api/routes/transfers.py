@@ -14,6 +14,7 @@ from fastapi import APIRouter, HTTPException, Query
 
 from api.deps import SessionDep, SettingsDep, resolve_league_context
 from core import transfers as tr
+from core.inputs import PlayerInputs
 from core.verdict import Verdict
 from storage.transfers import TransferContext, build_context
 from storage.verdict import live_verdicts
@@ -45,9 +46,11 @@ def _fixture(f) -> dict:
 
 
 def assessment_payload(
-    a: tr.Assessment, owned: set[int] | None = None, verdict: Verdict | None = None
+    a: tr.Assessment, owned: set[int] | None = None, verdict: Verdict | None = None,
+    inputs: PlayerInputs | None = None,
 ) -> dict:
     p = a.player
+    power_rank = inputs.ranks.get("power") if inputs is not None else None
     return {
         "playerId": p.player_id,
         "name": p.name,
@@ -59,6 +62,10 @@ def assessment_payload(
         "starterProbability": p.starter_probability,
         "recentJornadas": p.recent_jornadas,
         "powerScore": _r(p.power_score, 1),
+        # Within-position, the same rank the player table shows ("71 · #2").
+        "powerRank": (
+            {"rank": power_rank.rank, "of": power_rank.of} if power_rank else None
+        ),
         "economyScore": _r(p.economy, 1),
         "fairValue": p.fair_value,
         "valuationGapPct": _r(p.valuation_gap * 100, 1) if p.valuation_gap is not None else None,
@@ -158,7 +165,7 @@ def suggestions(
     each legal by the squad-rules engine, with its signals and confidence."""
     ctx, rules = _context(session, settings, n)
     ceiling = _ceiling(max, basis)
-    _, vmap = live_verdicts(session)
+    live, vmap = live_verdicts(session)
     moves = tr.suggest_moves(ctx.members, ctx.assessments, rules, ceiling, ctx.freshness,
                              ctx.jornadas, limit=limit)
     owned = {m.player_id for m in ctx.members}
@@ -173,10 +180,12 @@ def suggestions(
             {
                 "kind": m.kind,
                 "sell": (
-                    assessment_payload(m.sell, owned, vmap.get(m.sell.player_id))
+                    assessment_payload(m.sell, owned, vmap.get(m.sell.player_id),
+                                       live.get(m.sell.player_id))
                     if m.sell else None
                 ),
-                "buy": assessment_payload(m.buy, owned, vmap.get(m.buy.player_id)),
+                "buy": assessment_payload(m.buy, owned, vmap.get(m.buy.player_id),
+                                          live.get(m.buy.player_id)),
                 "gain": _r(m.gain),
                 "signals": [
                     {"name": s.name, "text": s.text, "contribution": _r(s.contribution)}
@@ -207,7 +216,7 @@ def bargains(
     """MODEL-05's bargains view: expected return high against price."""
     ctx, _ = _context(session, settings, n)
     ceiling = _ceiling(max, basis)
-    _, vmap = live_verdicts(session)
+    live, vmap = live_verdicts(session)
     owned = {m.player_id for m in ctx.members}
     rows = tr.bargains(ctx.assessments, ceiling, affordableOnly and ceiling is not None,
                        position, limit)
@@ -216,7 +225,8 @@ def bargains(
         "affordableOnly": affordableOnly and ceiling is not None,
         "players": [
             {
-                **assessment_payload(b.assessment, owned, vmap.get(b.assessment.player_id)),
+                **assessment_payload(b.assessment, owned, vmap.get(b.assessment.player_id),
+                                     live.get(b.assessment.player_id)),
                 "forwardFairValue": b.forward_fair_value,
                 "forwardGapPct": _r(b.forward_gap * 100, 1),
             }
@@ -241,7 +251,7 @@ def best(
     response says so (`ceilingMissing`) and shows everyone."""
     ctx, _ = _context(session, settings, n)
     ceiling = _ceiling(max, basis)
-    _, vmap = live_verdicts(session)
+    live, vmap = live_verdicts(session)
     applied = affordableOnly and ceiling is not None
     owned = {m.player_id for m in ctx.members}
     rows = tr.best_for_position(ctx.assessments, position, ceiling, applied, limit)
@@ -250,7 +260,10 @@ def best(
         "position": position,
         "affordableOnly": applied,
         "ceilingMissing": affordableOnly and ceiling is None,
-        "players": [assessment_payload(a, owned, vmap.get(a.player_id)) for a in rows],
+        "players": [
+            assessment_payload(a, owned, vmap.get(a.player_id), live.get(a.player_id))
+            for a in rows
+        ],
     }
 
 

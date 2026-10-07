@@ -165,9 +165,10 @@ const reliabilityClassColumn: PlayerColumnDef = {
   },
 };
 
-/** Task 7. Market-v2's 7-day expected price move, signed — in red whenever
- * that player carries drop risk (the prediction interval's lower bound is
- * negative). */
+/** Task 7. Market-v2's 7-day expected price move, signed — in red only when
+ * the model calls a fall. Drop risk (the interval's lower bound is negative)
+ * applies to almost everyone, so on any other call it is a "▾" marker and a
+ * tooltip, never the colour of a predicted rise. */
 const outlookPctColumn: PlayerColumnDef = {
   id: "outlookPct",
   accessorFn: (row: PlayerRow) => row.outlookPct ?? null,
@@ -176,16 +177,25 @@ const outlookPctColumn: PlayerColumnDef = {
     withIdTieBreak<PlayerRow>((a, b) =>
       nullsLastComparator(a.outlookPct ?? null, b.outlookPct ?? null, false),
     )(rowA.original, rowB.original),
-  cell: ({ row }) => (
-    <span
-      className={`tabular block text-right ${
-        row.original.dropRisk ? "text-[color:var(--color-destructive)]" : ""
-      }`}
-      title="Expected 7-day price move (market-v2)"
-    >
-      {formatPercent(row.original.outlookPct ?? null)}
-    </span>
-  ),
+  cell: ({ row }) => {
+    const falling = row.original.outlookDirection === "fall";
+    const riskMarker = row.original.dropRisk === true && !falling;
+    return (
+      <span
+        className={`tabular block text-right ${
+          falling ? "text-[color:var(--color-destructive)]" : ""
+        }`}
+        title={
+          riskMarker
+            ? "Expected 7-day price move (market-v2) — drop risk: the range reaches below zero"
+            : "Expected 7-day price move (market-v2)"
+        }
+      >
+        {formatPercent(row.original.outlookPct ?? null)}
+        {riskMarker && <span aria-hidden="true"> ▾</span>}
+      </span>
+    );
+  },
 };
 
 /** Plan C Task 6 — the verdict label every surface agrees on. Sorted by

@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DEFAULT_WINDOWS, fetchPlayerAnalytics, type PlayerAnalytics } from "../../api-client/analytics";
-import { fetchPlayerVerdict } from "../../api-client/verdict";
 import MetricCard from "../metrics/MetricCard";
+import { usePlayerVerdict } from "../verdict/usePlayerVerdict";
 import {
   buildConsistencySteps,
   buildFormSteps,
@@ -56,11 +56,7 @@ function Panel({
 }) {
   const { form, consistency, power, momentum, reliability, pointsValue, priceOutlook, xp, valuation, ranks } = data;
 
-  const verdictQuery = useQuery({
-    queryKey: ["player-verdict-card", data.playerId],
-    queryFn: () => fetchPlayerVerdict(data.playerId),
-    retry: false,
-  });
+  const verdictQuery = usePlayerVerdict(data.playerId);
 
   return (
     <div className="grid gap-md sm:grid-cols-2">

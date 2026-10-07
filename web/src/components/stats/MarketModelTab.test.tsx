@@ -101,7 +101,7 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     });
     vi.mocked(fetchTrackRecord).mockResolvedValue(record(bucket(0, 0, 556), bucket(6218, 5776)));
     vi.mocked(fetchDivergence).mockResolvedValue(DIVERGENCE);
-    vi.mocked(fetchVerdictValidation).mockResolvedValue({ generatedAt: null, labels: [] });
+    vi.mocked(fetchVerdictValidation).mockResolvedValue({ generatedAt: null, labels: [], disabledLabels: [] });
   });
 
   it("shows the verdict validation section, with the refresh instruction before a report exists (Plan C Task 6)", async () => {
@@ -113,6 +113,7 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
   it("renders the stored report's label rows once one exists", async () => {
     vi.mocked(fetchVerdictValidation).mockResolvedValue({
       generatedAt: "2026-10-01T00:00:00Z",
+      disabledLabels: [],
       labels: [
         { label: "Sell high", metric: "price_pct", n: 40, players: 12, hitRate: 0.5,
           baseRate: 0.52, meanDiff: -0.1, ciLow: -0.3, ciHigh: 0.1, beatsChance: false },

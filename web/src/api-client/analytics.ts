@@ -111,7 +111,10 @@ export interface PointsValueBlock {
   replacement: number | null;
   price: number | null;
   cashPerPoint: number;
+  /** Jornadas looked ahead (the copy's "next 3"). */
   horizon: number;
+  /** Matches inside those jornadas — fewer after a blank, more after a double. */
+  matchCount: number;
   matches: { opponent: string; isHome: boolean; xp: number }[];
   reason: string | null;
   rank: RankBlock | null;

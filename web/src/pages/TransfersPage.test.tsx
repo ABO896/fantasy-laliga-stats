@@ -56,7 +56,7 @@ function env(freshness: Freshness = FRESH): Envelope {
 function player(playerId: number, name: string, extra: Partial<TransferPlayer> = {}): TransferPlayer {
   return {
     playerId, name, team: "Levante", position: "DEL", owned: false, marketValue: 4_600_000,
-    availability: "available", starterProbability: 80, recentJornadas: 10, powerScore: 40,
+    availability: "available", starterProbability: 80, recentJornadas: 10, powerScore: 40, powerRank: null,
     economyScore: 80, fairValue: 9_000_000, valuationGapPct: 95, predictedPct: 1.2,
     predictionConfidence: "strong", expectedReturn: 5.2, expectedPoints: null,
     expectedPointsUsed: false, backwardPpg: 4.8, minutesFactor: 0.9, fixtureMultiplier: 1.1,
@@ -195,6 +195,15 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
     await vi.waitFor(() =>
       expect(fetchBest).toHaveBeenLastCalledWith(expect.anything(), "MED", false),
     );
+  });
+
+  it("best by position shows Power with its within-position rank (final review #9)", async () => {
+    vi.mocked(fetchBest).mockResolvedValue(
+      best({ players: [player(4, "Mbappé", { powerScore: 71.2, powerRank: { rank: 2, of: 40 } })] }),
+    );
+    renderPage();
+    const cell = await screen.findByTitle("#2 of 40 DEL by Power");
+    expect(cell.textContent).toBe("71 · #2");
   });
 
   it("an empty squad points to My Squad instead of an empty list", async () => {

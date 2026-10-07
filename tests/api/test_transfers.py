@@ -215,3 +215,15 @@ def test_empty_database_is_not_an_error(client):
     assert body["freshness"]["label"] == "low"
     assert client.get("/api/transfers/best?position=POR").json()["players"] == []
     assert client.get("/api/transfers/bargains").json()["players"] == []
+
+
+def test_best_by_position_carries_the_within_position_power_rank(world, client):
+    """Final review #9: Power shows as "71 · #2" like the player table."""
+    players = client.get("/api/transfers/best?position=DEL&affordableOnly=false").json()[
+        "players"
+    ]
+    ranked = [p for p in players if p["powerRank"] is not None]
+    assert ranked
+    for p in ranked:
+        assert set(p["powerRank"]) == {"rank", "of"}
+        assert 1 <= p["powerRank"]["rank"] <= p["powerRank"]["of"]

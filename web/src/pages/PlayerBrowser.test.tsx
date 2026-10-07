@@ -20,6 +20,19 @@ vi.mock("../api-client/watchlist", () => ({
 
 import { addToWatchlist, fetchWatchlist } from "../api-client/watchlist";
 
+vi.mock("../api-client/verdict", async () => {
+  const actual =
+    await vi.importActual<typeof import("../api-client/verdict")>("../api-client/verdict");
+  return {
+    ...actual,
+    fetchVerdictValidation: vi.fn().mockResolvedValue({
+      generatedAt: null, labels: [], disabledLabels: [],
+    }),
+  };
+});
+
+import { fetchVerdictValidation } from "../api-client/verdict";
+
 function buildPlayer(overrides: Partial<PlayerRow> & { playerId: number }): PlayerRow {
   return {
     externalId: `player-${overrides.playerId}`,
@@ -655,5 +668,20 @@ describe("PlayerBrowser", () => {
       await screen.findByText("Your watchlist is empty");
       expect(screen.queryByText("Someone")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("PlayerBrowser — disabled verdict labels (final review #11)", () => {
+  it("hides the verdict filter for labels live verdicts skip", async () => {
+    mockPlayers([buildPlayer({ playerId: 1, name: "Someone" })]);
+    vi.mocked(fetchVerdictValidation).mockResolvedValueOnce({
+      generatedAt: null, labels: [], disabledLabels: ["Rotation risk"],
+    });
+    renderWithClient(<PlayerBrowser />);
+    await screen.findByText("Someone");
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Rotation risk")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Elite")).toBeInTheDocument();
   });
 });

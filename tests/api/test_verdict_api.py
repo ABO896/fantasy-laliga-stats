@@ -6,7 +6,7 @@ stored validation report.
 import json
 from datetime import UTC, date, datetime
 
-from core.verdict import LABELS
+from core.verdict import DISABLED_LABELS, LABELS
 from storage.models import ModelReport, Player, PlayerSnapshot, ScrapeRun
 from storage.verdict_backtest import REPORT_NAME
 
@@ -81,7 +81,9 @@ def test_an_unknown_player_returns_404(client):
 
 def test_validation_endpoint_without_a_stored_report_returns_the_empty_shape(client):
     body = client.get("/api/models/verdict/validation").json()
-    assert body == {"generatedAt": None, "labels": []}
+    # disabledLabels is the live set (final review #11), report or not.
+    assert body == {"generatedAt": None, "labels": [],
+                    "disabledLabels": sorted(DISABLED_LABELS)}
 
 
 def test_validation_endpoint_returns_the_stored_report(client, session):
@@ -106,7 +108,7 @@ def test_validation_endpoint_returns_the_stored_report(client, session):
     session.commit()
 
     body = client.get("/api/models/verdict/validation").json()
-    assert body == payload
+    assert body == {**payload, "disabledLabels": sorted(DISABLED_LABELS)}
 
 
 def test_a_players_verdict_carries_its_validation_entry_when_one_is_stored(client, session):

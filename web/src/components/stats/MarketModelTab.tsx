@@ -322,8 +322,9 @@ function VerdictValidation() {
         Verdict validation
       </h3>
       <p className="text-xs muted">
-        Each label that makes a forward claim, scored against what an average same-position
-        player did on the same day — a label beats chance only when its 90% interval clears zero.
+        Each label that makes a forward claim, scored against what an average eligible
+        same-position player (available, past the evidence floor) did on the same day — a label
+        beats chance only when its 90% interval clears zero.
       </p>
       {isLoading && <p className="state-note">Loading the validation report…</p>}
       {isError && <p className="state-error">Couldn't load the validation report.</p>}

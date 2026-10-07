@@ -47,6 +47,9 @@ interface FilterSidebarProps {
    * unknown (loading or failed) — the filter is then omitted rather than
    * offered against a list that might be wrong. */
   watchlistCount?: number;
+  /** Verdict labels live verdicts currently skip (`DISABLED_LABELS`) — no
+   * player can carry one, so no checkbox is offered for it. */
+  disabledLabels?: string[];
 }
 
 function toggle(list: string[], item: string): string[] {
@@ -84,6 +87,7 @@ export default function FilterSidebar({
   onChange,
   players,
   watchlistCount,
+  disabledLabels = [],
 }: FilterSidebarProps) {
   const teams = Array.from(new Set(players.map((p) => p.team))).sort((a, b) =>
     a.localeCompare(b),
@@ -272,7 +276,7 @@ export default function FilterSidebar({
         <fieldset>
           <legend className={legendClass}>Verdict</legend>
           <div className="grid grid-cols-2 gap-x-sm lg:grid-cols-1">
-            {VERDICT_LABELS.map((label) => (
+            {VERDICT_LABELS.filter((label) => !disabledLabels.includes(label)).map((label) => (
               <label key={label} className={optionClass}>
                 <input
                   type="checkbox"

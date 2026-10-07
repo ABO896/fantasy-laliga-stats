@@ -9,6 +9,7 @@ import {
   type Move,
   type Position,
   type PriceBasis,
+  type TransferPlayer,
   type TransferQuery,
 } from "../api-client/transfers";
 import {
@@ -285,6 +286,17 @@ function Bargains({ query }: { query: TransferQuery }) {
   );
 }
 
+/** Power with its within-position rank, "71 · #2" — the player table's form. */
+function PowerCell({ player }: { player: TransferPlayer }) {
+  const rank = player.powerRank;
+  return (
+    <span title={rank ? `#${rank.rank} of ${rank.of} ${player.position} by Power` : undefined}>
+      {player.powerScore === null ? "—" : Math.round(player.powerScore)}
+      {rank && <span className="muted"> · #{rank.rank}</span>}
+    </span>
+  );
+}
+
 function BestByPosition({
   query,
   position,
@@ -364,7 +376,9 @@ function BestByPosition({
                   {p.verdict && <VerdictChip label={p.verdict.label} size="sm" />}
                 </td>
                 <td className="num">{num(p.expectedReturn)}</td>
-                <td className="num">{num(p.powerScore)}</td>
+                <td className="num">
+                  <PowerCell player={p} />
+                </td>
                 <td className="num">{euro(p.marketValue)}</td>
                 <td className="num">{num(p.efficiency, 2)}</td>
                 <td>

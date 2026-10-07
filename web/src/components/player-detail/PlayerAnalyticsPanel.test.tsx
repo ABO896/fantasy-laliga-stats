@@ -1,6 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { PlayerAnalytics } from "../../api-client/analytics";
 import type { PlayerVerdict } from "../../api-client/verdict";
@@ -18,6 +19,7 @@ vi.mock("../../api-client/verdict", async () => {
 
 import { fetchPlayerAnalytics } from "../../api-client/analytics";
 import { fetchPlayerVerdict } from "../../api-client/verdict";
+import VerdictBanner from "../verdict/VerdictBanner";
 import PlayerAnalyticsPanel from "./PlayerAnalyticsPanel";
 
 const CARD_TITLES = [
@@ -69,7 +71,7 @@ function payload(overrides: Partial<PlayerAnalytics> = {}): PlayerAnalytics {
     evidence: { matchesWithMinutes: 8, lastSeasonApps: 30, ok: true, reason: null },
     pointsValue: {
       value: 0.018, xpts: 9.2, replacement: 4.4, price: 26_000_000, cashPerPoint: 100_000,
-      horizon: 3, matches: [{ opponent: "Betis", isHome: true, xp: 3.1 }], reason: null,
+      horizon: 3, matchCount: 1, matches: [{ opponent: "Betis", isHome: true, xp: 3.1 }], reason: null,
       rank: { rank: 5, of: 190, percentile: 97 },
     },
     priceOutlook: {
@@ -125,7 +127,9 @@ function verdictPayload(overrides: Partial<PlayerVerdict> = {}): PlayerVerdict {
 function renderPanel() {
   return render(
     <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <PlayerAnalyticsPanel playerId={7} />
+      <MemoryRouter initialEntries={["/players/7"]}>
+        <PlayerAnalyticsPanel playerId={7} />
+      </MemoryRouter>
     </QueryClientProvider>,
   );
 }
@@ -174,10 +178,30 @@ describe("PlayerAnalyticsPanel", () => {
 
   it("says why there is no points value instead of showing a number", async () => {
     vi.mocked(fetchPlayerAnalytics).mockResolvedValue(
-      payload({ pointsValue: { value: null, xpts: null, replacement: null, price: null, cashPerPoint: 100_000, horizon: 3, matches: [], reason: "no points in the recent window", rank: null } }),
+      payload({ pointsValue: { value: null, xpts: null, replacement: null, price: null, cashPerPoint: 100_000, horizon: 3, matchCount: 0, matches: [], reason: "no points in the recent window", rank: null } }),
     );
     vi.mocked(fetchPlayerVerdict).mockResolvedValue(verdictPayload());
     renderPanel();
     expect(await screen.findByText("no points in the recent window")).toBeInTheDocument();
+  });
+});
+
+describe("the player page fetches the verdict once (final review #7)", () => {
+  it("shares one verdict query between the banner and the verdict card", async () => {
+    vi.mocked(fetchPlayerAnalytics).mockResolvedValue(payload());
+    vi.mocked(fetchPlayerVerdict).mockReset();
+    vi.mocked(fetchPlayerVerdict).mockResolvedValue(verdictPayload());
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={["/players/7?max=5000000"]}>
+          <VerdictBanner playerId={7} />
+          <PlayerAnalyticsPanel playerId={7} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    await screen.findByText("Top output, nailed starter.");
+    await waitFor(() => expect(screen.getAllByText("Elite").length).toBeGreaterThan(1));
+    expect(fetchPlayerVerdict).toHaveBeenCalledTimes(1);
+    expect(fetchPlayerVerdict).toHaveBeenCalledWith(7, 5_000_000);
   });
 });

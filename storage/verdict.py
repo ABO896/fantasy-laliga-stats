@@ -103,11 +103,12 @@ def _personal_payload(line: PersonalLine | None) -> dict | None:
 
 def validation_report(session: Session) -> dict:
     """The stored walk-forward report, or the documented empty shape when
-    the harness has never been run with `--write`."""
+    the harness has never been run with `--write` — plus `disabledLabels`,
+    the labels live verdicts skip right now (the stored report's own
+    `disabled` records what that run used)."""
     row = session.get(ModelReport, REPORT_NAME)
-    if row is None:
-        return {"generatedAt": None, "labels": []}
-    return json.loads(row.payload)
+    report = {"generatedAt": None, "labels": []} if row is None else json.loads(row.payload)
+    return {**report, "disabledLabels": sorted(DISABLED_LABELS)}
 
 
 def _validation_for_label(session: Session, label: str) -> dict | None:

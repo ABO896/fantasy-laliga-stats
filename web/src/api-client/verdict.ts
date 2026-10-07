@@ -80,6 +80,16 @@ export interface ValidationLabelRow {
   ciLow: number | null;
   ciHigh: number | null;
   beatsChance: boolean;
+  /** Rising / Sell high only: the same claim over a naive pick — the
+   * eligible players whose 7-day move was in the top / bottom 15% of their
+   * position that day. Absent from reports stored before it existed. */
+  momentumBaseline?: MomentumBaseline | null;
+}
+
+export interface MomentumBaseline {
+  n: number;
+  hitRate: number | null;
+  meanDiff: number | null;
 }
 
 /** GET /models/verdict/validation. `generatedAt: null` with an empty
@@ -93,6 +103,9 @@ export interface ValidationReport {
   disabled?: string[];
   labels: ValidationLabelRow[];
   notes?: string[];
+  /** The labels live verdicts skip right now (`core.verdict.DISABLED_LABELS`),
+   * sent whether or not a report is stored. */
+  disabledLabels: string[];
 }
 
 export function fetchVerdictValidation(): Promise<ValidationReport> {

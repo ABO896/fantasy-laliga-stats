@@ -85,6 +85,35 @@ describe("VerdictBanner", () => {
     expect(screen.queryByText(/hasn't yet beaten chance/)).not.toBeInTheDocument();
   });
 
+  it("says the label is not yet validated when no report covers it", async () => {
+    vi.mocked(fetchPlayerVerdict).mockResolvedValue({ ...BASE, validation: null });
+    renderBanner();
+    expect(
+      await screen.findByText("Not yet validated on our history — treat it as a hint."),
+    ).toBeInTheDocument();
+  });
+
+  it("says the label is not yet validated when it has no scored observations", async () => {
+    vi.mocked(fetchPlayerVerdict).mockResolvedValue({
+      ...BASE,
+      validation: { label: "Bargain", beatsChance: false, hitRate: null, n: 0 },
+    });
+    renderBanner();
+    expect(await screen.findByText(/Not yet validated on our history/)).toBeInTheDocument();
+    expect(screen.queryByText(/hasn't yet beaten chance/)).not.toBeInTheDocument();
+  });
+
+  it("adds no validation note to a label that makes no forward claim", async () => {
+    vi.mocked(fetchPlayerVerdict).mockResolvedValue({
+      ...BASE,
+      label: "Unavailable",
+      validation: { label: "Unavailable", beatsChance: false, hitRate: null, n: 40 },
+    });
+    renderBanner();
+    await screen.findByText(BASE.reason);
+    expect(screen.queryByText(/validated|beaten chance/)).not.toBeInTheDocument();
+  });
+
   it("passes the ceiling from the URL's ?max= through to the fetch", async () => {
     vi.mocked(fetchPlayerVerdict).mockResolvedValue(BASE);
     renderBanner("/players/7?max=5000000");

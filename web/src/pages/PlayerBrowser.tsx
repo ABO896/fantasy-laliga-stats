@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { fetchPlayers } from "../api-client/players";
 import type { PlayerRow } from "../api-client/players";
 import { addSquadPlayer, SquadRuleError } from "../api-client/squad";
+import { fetchVerdictValidation } from "../api-client/verdict";
 import AddToSquadDialog from "../components/AddToSquadDialog";
 import PlayerTable from "../components/PlayerTable/PlayerTable";
 import TableSkeleton from "../components/PlayerTable/TableSkeleton";
@@ -86,6 +87,12 @@ export default function PlayerBrowser() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["players"],
     queryFn: fetchPlayers,
+  });
+  // Shares the Stats tab's key: the live disabled labels ride on the
+  // validation report, so the verdict filter offers only labels in use.
+  const { data: validation } = useQuery({
+    queryKey: ["verdict-validation"],
+    queryFn: fetchVerdictValidation,
   });
 
   const queryClient = useQueryClient();
@@ -211,6 +218,7 @@ export default function PlayerBrowser() {
         onChange={setFilters}
         players={players}
         watchlistCount={watchedIds?.length}
+        disabledLabels={validation?.disabledLabels}
       />
       <PlayerTable
         players={shownPlayers}
