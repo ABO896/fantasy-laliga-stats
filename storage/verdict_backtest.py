@@ -9,8 +9,11 @@ history only up to `d` — then measures what each labelled player actually
 did over the following `horizon` jornadas / 7 days, and scores every label
 through `core.verdict_harness.label_reports`.
 
-    uv run python -m storage.verdict_backtest --db PATH [--write] [--grid]
+    uv run python -m storage.verdict_backtest --db PATH [--write] [--grid] [--no-disabled]
 
+Labels in `core.verdict.DISABLED_LABELS` are disabled exactly as live
+(`make verdict-report` writes that report for data/fantasy.db);
+`--no-disabled` is a diagnostic that scores every label instead.
 `--write` stores the report as `ModelReport(name="verdict-validation")`;
 `--grid` sweeps a coarse threshold grid and prints one line per
 combination, never writing (see `run_grid`).
@@ -34,7 +37,7 @@ from core.config import get_settings
 from core.inputs import InputsData, PlayerInputs, UpcomingMatch, compute_inputs
 from core.odds import match_probabilities
 from core.reliability import CLASS_THRESHOLDS
-from core.verdict import DEFAULT_THRESHOLDS, Thresholds, Verdict, verdicts
+from core.verdict import DEFAULT_THRESHOLDS, DISABLED_LABELS, Thresholds, Verdict, verdicts
 from core.verdict_harness import Observation
 from storage.db import as_utc
 from storage.expected_points import ODDS_SOURCE
@@ -43,6 +46,8 @@ from storage.market_v2 import OutlookHistory, load_schedule, outlook_history, ou
 from storage.models import ExternalMatch, Fixture, ModelReport
 
 REPORT_NAME = "verdict-validation"
+#: Not part of a label's baseline: what `core.verdict` rule 1 calls unavailable.
+_UNAVAILABLE = frozenset({"injured", "suspended"})
 
 
 # --- historical upcoming fixtures, with odds -------------------------------------------
@@ -122,14 +127,14 @@ class SessionData:
     schedule_rows: list[ScheduleRow]
     outlooks: OutlookHistory
     thresholds: Thresholds = DEFAULT_THRESHOLDS
-    disabled: frozenset = frozenset()
+    disabled: frozenset = DISABLED_LABELS
     horizon: int = 3
     class_thresholds: Sequence[tuple[str, float]] = CLASS_THRESHOLDS
 
 
 def load_session_data(
     session: Session, season: int, thresholds: Thresholds = DEFAULT_THRESHOLDS,
-    disabled: frozenset = frozenset(), horizon: int = 3,
+    disabled: frozenset = DISABLED_LABELS, horizon: int = 3,
     class_thresholds: Sequence[tuple[str, float]] = CLASS_THRESHOLDS,
 ) -> SessionData:
     """Every table the harness reads for `season`, loaded once."""
@@ -241,14 +246,15 @@ def _observations_for(
             else:
                 points = points_per_m = minutes = None
 
-            price_pct = m2.price_change_pct(
-                session_data.data.prices.get(pid, {}), d + timedelta(days=7), 7
-            )
+            prices = session_data.data.prices.get(pid, {})
+            price_pct = m2.price_change_pct(prices, d + timedelta(days=7), 7)
 
             observations.append(Observation(
                 day=d, player_id=pid, position=pi.position, label=verdict_row.label,
                 outcomes={"points": points, "points_per_m": points_per_m,
                           "price_pct": price_pct, "minutes": minutes},
+                eligible=pi.availability not in _UNAVAILABLE and pi.evidence.ok,
+                momentum=m2.price_change_pct(prices, d, 7),
             ))
     return observations, full_window_count
 
@@ -271,12 +277,17 @@ def _label_payload(r: vh.LabelReport) -> dict:
         "hitRate": _round(r.hit_rate), "baseRate": _round(r.base_rate),
         "meanDiff": _round(r.mean_diff), "ciLow": _round(r.ci_low),
         "ciHigh": _round(r.ci_high), "beatsChance": r.beats_chance,
+        "momentumBaseline": (
+            {"n": r.momentum.n, "hitRate": _round(r.momentum.hit_rate),
+             "meanDiff": _round(r.momentum.mean_diff)}
+            if r.momentum is not None else None
+        ),
     }
 
 
 def run_backtest(
     session: Session, season: int, thresholds: Thresholds = DEFAULT_THRESHOLDS,
-    disabled: frozenset = frozenset(), horizon: int = 3,
+    disabled: frozenset = DISABLED_LABELS, horizon: int = 3,
 ) -> dict:
     """The point-in-time loop over every day stored history allows, scored
     through `core.verdict_harness.label_reports` — the JSON `ModelReport`
@@ -292,6 +303,8 @@ def run_backtest(
         f"{full_window_count} of {len(dates)} dates qualify.",
         f"{len(observations)} observation(s) across {len(dates)} date(s); "
         f"{len(disabled)} label(s) disabled.",
+        "baseline: eligible players only (available and past the evidence floor that day); "
+        "Rising/Sell high also compared with the top/bottom 15% 7-day movers per position.",
     ]
     return {
         "generatedAt": datetime.now(UTC).isoformat(),
@@ -376,13 +389,19 @@ def _fmt(x: float | None, pct: bool = False) -> str:
 def _print_table(report: dict) -> None:
     print(f"season {report['season']} — {len(report['dates'])} dates, "
           f"disabled: {report['disabled'] or 'none'}")
-    print("| label | metric | n | players | hitRate | baseRate | meanDiff | ci | beatsChance |")
-    print("|---|---|---|---|---|---|---|---|---|")
+    print("| label | metric | n | players | hitRate | baseRate | meanDiff | ci | beatsChance "
+          "| momentum n | momentum hitRate | momentum meanDiff |")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|")
     for r in report["labels"]:
         ci = f"[{_fmt(r['ciLow'])}, {_fmt(r['ciHigh'])}]" if r["ciLow"] is not None else "—"
+        mb = r.get("momentumBaseline")
+        momentum = (
+            f"{mb['n']} | {_fmt(mb['hitRate'], pct=True)} | {_fmt(mb['meanDiff'])}"
+            if mb else "— | — | —"
+        )
         print(f"| {r['label']} | {r['metric'] or '—'} | {r['n']} | {r['players']} | "
               f"{_fmt(r['hitRate'], pct=True)} | {_fmt(r['baseRate'], pct=True)} | "
-              f"{_fmt(r['meanDiff'])} | {ci} | {r['beatsChance']} |")
+              f"{_fmt(r['meanDiff'])} | {ci} | {r['beatsChance']} | {momentum} |")
     for note in report["notes"]:
         print(f"note: {note}")
 
@@ -402,7 +421,10 @@ def main(argv: list[str] | None = None) -> None:
     ap.add_argument("--db", default="data/fantasy.db")
     ap.add_argument("--write", action="store_true", help="store the report as a ModelReport")
     ap.add_argument("--grid", action="store_true", help="sweep a coarse threshold grid")
+    ap.add_argument("--no-disabled", action="store_true",
+                    help="diagnostic: score every label, ignoring DISABLED_LABELS")
     args = ap.parse_args(argv)
+    disabled = frozenset() if args.no_disabled else DISABLED_LABELS
 
     engine = create_engine(f"sqlite:///{args.db}")
     season = get_settings().current_season_year
@@ -410,7 +432,7 @@ def main(argv: list[str] | None = None) -> None:
         if args.grid:
             _print_grid(run_grid(session, season))
             return
-        report = run_backtest(session, season)
+        report = run_backtest(session, season, disabled=disabled)
         _print_table(report)
         if args.write:
             write_report(session, report)

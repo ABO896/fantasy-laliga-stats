@@ -1,4 +1,4 @@
-.PHONY: dev api web test scrape scrape-mine scrape-full backfill
+.PHONY: dev api web test scrape scrape-mine scrape-full backfill verdict-report
 
 dev:
 	@echo "Starting FastAPI (127.0.0.1:8000) and Vite dev server (127.0.0.1:5173)..."
@@ -30,3 +30,6 @@ scrape-full:
 
 backfill:
 	uv run python -m scraper.backfill --season 2025
+
+verdict-report:
+	uv run python -m storage.verdict_backtest --db data/fantasy.db --write

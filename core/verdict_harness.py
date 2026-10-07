@@ -19,6 +19,17 @@ resamples *players*, not observations, pooling whichever players are
 drawn and taking the mean of everything they contributed. A label beats
 chance only when the low end of that interval still clears zero.
 
+The "position" baseline is **eligible** observations only — available (not
+injured/suspended) and past the evidence floor on the day — the players a
+label could actually have been given. Injured, unproven and zero-minute
+players would otherwise drag the same-day mean down and flatter every label.
+
+The two price labels also carry a **momentum baseline** (`MOMENTUM`): the
+same claim measured over a naive selection — the eligible players whose
+7-day price move was in the top (Rising) or bottom (Sell high) 15% of their
+position that day. A price label that does not beat plain momentum adds
+nothing a sorted column would not.
+
 Labels with no forward claim (`Unavailable`, `Unproven`, `Fair price`) are
 reported with a count only — they are not claims to validate.
 """
@@ -43,6 +54,12 @@ CLAIMS: dict[str, tuple[str, int]] = {
 }
 
 
+#: The naive momentum rule each price label is compared against: +1 picks the
+#: top `MOMENTUM_SHARE` of the position's 7-day movers that day, -1 the bottom.
+MOMENTUM: dict[str, int] = {"Rising": +1, "Sell high": -1}
+MOMENTUM_SHARE = 0.15
+
+
 @dataclass(frozen=True)
 class Observation:
     day: date
@@ -50,6 +67,17 @@ class Observation:
     position: str
     label: str
     outcomes: dict[str, float | None]  # keys: points, points_per_m, price_pct, minutes
+    #: Available and past the evidence floor on `day` — part of the baseline.
+    eligible: bool = True
+    #: The 7-day price move up to `day` (%), for the momentum baseline.
+    momentum: float | None = None
+
+
+@dataclass(frozen=True)
+class MomentumBaseline:
+    n: int
+    hit_rate: float | None
+    mean_diff: float | None
 
 
 @dataclass(frozen=True)
@@ -64,6 +92,8 @@ class LabelReport:
     ci_low: float | None  # 90% clustered-bootstrap interval of mean_diff
     ci_high: float | None
     beats_chance: bool  # ci_low > 0
+    #: The same claim over the naive momentum selection (price labels only).
+    momentum: MomentumBaseline | None = None
 
 
 def _percentile(values: Sequence[float], pct: float) -> float:
@@ -101,9 +131,11 @@ def _group_means(
     obs: Sequence[Observation],
 ) -> dict[str, dict[tuple[date, str], float]]:
     """Per metric, the mean outcome within each (day, position) — over every
-    observation that day with that outcome, whatever its label."""
+    eligible observation that day with that outcome, whatever its label."""
     groups: dict[str, dict[tuple[date, str], list[float]]] = {}
     for o in obs:
+        if not o.eligible:
+            continue
         for metric, value in o.outcomes.items():
             if value is None:
                 continue
@@ -137,12 +169,6 @@ def label_reports(
         metric, sign = CLAIMS[label]
         by_key = means.get(metric, {})
         qualifying = [o for o in label_obs if o.outcomes.get(metric) is not None]
-        n = len(qualifying)
-        players = len({o.player_id for o in qualifying})
-        if n == 0:
-            reports.append(LabelReport(label, metric, 0, 0, None, None, None, None, None,
-                                       False))
-            continue
 
         diffs_by_player: dict[int, list[float]] = {}
         diffs: list[float] = []
@@ -150,12 +176,20 @@ def label_reports(
         keys_seen: set[tuple[date, str]] = set()
         for o in qualifying:
             key = (o.day, o.position)
+            if key not in by_key:  # no eligible peer that day: nothing to compare to
+                continue
             keys_seen.add(key)
             d = sign * (o.outcomes[metric] - by_key[key])
             diffs.append(d)
             diffs_by_player.setdefault(o.player_id, []).append(d)
             if d > 0:
                 hits += 1
+        if not diffs:
+            reports.append(LabelReport(label, metric, 0, 0, None, None, None, None, None,
+                                       False))
+            continue
+        n = len(diffs)
+        players = len(diffs_by_player)
         hit_rate = hits / n
 
         base_total = 0
@@ -163,7 +197,7 @@ def label_reports(
         for o in obs:
             value = o.outcomes.get(metric)
             key = (o.day, o.position)
-            if value is None or key not in keys_seen:
+            if not o.eligible or value is None or key not in keys_seen:
                 continue
             d = sign * (value - by_key[key])
             base_total += 1
@@ -180,5 +214,46 @@ def label_reports(
             label=label, metric=metric, n=n, players=players, hit_rate=hit_rate,
             base_rate=base_rate, mean_diff=mean_diff, ci_low=ci_low, ci_high=ci_high,
             beats_chance=beats_chance,
+            momentum=(
+                momentum_baseline(obs, metric, MOMENTUM[label], by_key)
+                if label in MOMENTUM else None
+            ),
         ))
     return reports
+
+
+def _momentum_rank(value: float, others: Sequence[float]) -> float:
+    """Share of the day's movers strictly below `value`, over `n - 1`."""
+    return sum(v < value for v in others) / max(len(others) - 1, 1)
+
+
+def momentum_baseline(
+    obs: Sequence[Observation], metric: str, sign: int,
+    by_key: Mapping[tuple[date, str], float],
+) -> MomentumBaseline:
+    """The claim `sign` on `metric`, measured over the naive momentum pick:
+    eligible observations whose `momentum` is in the top (`sign` +1) or
+    bottom (-1) `MOMENTUM_SHARE` of their (day, position). Same hit and
+    diff definitions as the label itself."""
+    movers: dict[tuple[date, str], list[float]] = {}
+    for o in obs:
+        if o.eligible and o.momentum is not None and o.outcomes.get(metric) is not None:
+            movers.setdefault((o.day, o.position), []).append(o.momentum)
+
+    diffs: list[float] = []
+    for o in obs:
+        key = (o.day, o.position)
+        value = o.outcomes.get(metric)
+        if not o.eligible or o.momentum is None or value is None or key not in by_key:
+            continue
+        rank = _momentum_rank(o.momentum, movers[key])
+        picked = rank >= 1 - MOMENTUM_SHARE if sign > 0 else rank <= MOMENTUM_SHARE
+        if picked:
+            diffs.append(sign * (value - by_key[key]))
+    if not diffs:
+        return MomentumBaseline(0, None, None)
+    return MomentumBaseline(
+        n=len(diffs),
+        hit_rate=sum(d > 0 for d in diffs) / len(diffs),
+        mean_diff=statistics.fmean(diffs),
+    )

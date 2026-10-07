@@ -6,7 +6,7 @@ from datetime import UTC, date, datetime, timedelta
 
 from sqlmodel import select
 
-from core.verdict import LABELS
+from core.verdict import DISABLED_LABELS, LABELS
 from storage.models import (
     ExternalMatch,
     Fixture,
@@ -236,7 +236,7 @@ def _outlook(session, pid, predicted_pct, direction, drop_risk=False):
 
 def test_report_has_every_label_row(session):
     _seed(session)
-    report = run_backtest(session, SEASON)
+    report = run_backtest(session, SEASON, disabled=frozenset())
     assert {row["label"] for row in report["labels"]} == set(LABELS)
 
 
@@ -336,3 +336,50 @@ def test_harness_drops_an_outlook_older_than_seven_days(session):
     assert verdicts_on(load_session_data(session, SEASON), probe)[ids["rising_med"]].label != (
         "Rising"
     )
+
+
+# --- eligibility, momentum, and the live disabled set (final review #2-#4) ---------------
+
+
+def test_observations_mark_ineligible_players_and_carry_momentum(session):
+    ids = _seed(session)
+    session_data = load_session_data(session, SEASON)
+    ctx = _static_context(SEASON, session_data.data)
+    dates = _select_dates(session_data.ends, ctx.days)
+    observations, _ = _observations_for(session_data, SEASON, ctx, dates)
+
+    by_pid = {}
+    for o in observations:
+        by_pid.setdefault(o.player_id, []).append(o)
+    assert not any(o.eligible for o in by_pid[ids["unavailable_del"]])
+    assert not any(o.eligible for o in by_pid[ids["unproven_med"]])
+    assert all(o.eligible for o in by_pid[ids["elite_med"]])
+    assert all(o.momentum is not None for o in by_pid[ids["elite_med"]])
+
+
+def test_report_defaults_to_the_live_disabled_labels(session):
+    _seed(session)
+    report = run_backtest(session, SEASON)
+    assert report["disabled"] == sorted(DISABLED_LABELS)
+
+
+def test_price_label_rows_carry_a_momentum_baseline(session):
+    _seed(session)
+    report = run_backtest(session, SEASON, disabled=frozenset())
+    rows = {row["label"]: row for row in report["labels"]}
+    assert set(rows["Rising"]["momentumBaseline"]) == {"n", "hitRate", "meanDiff"}
+    assert rows["Elite"]["momentumBaseline"] is None
+
+
+def test_main_uses_the_live_disabled_set_unless_told_not_to(session, monkeypatch, capsys):
+    import storage.verdict_backtest as vb
+
+    seen = []
+    monkeypatch.setattr(vb, "run_backtest",
+                        lambda _s, _season, disabled: seen.append(disabled) or {
+                            "season": SEASON, "dates": [], "disabled": sorted(disabled),
+                            "labels": [], "notes": []})
+    monkeypatch.setattr(vb, "create_engine", lambda _url: session.get_bind())
+    vb.main(["--db", "unused.db"])
+    vb.main(["--db", "unused.db", "--no-disabled"])
+    assert seen == [DISABLED_LABELS, frozenset()]
