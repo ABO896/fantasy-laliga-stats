@@ -205,10 +205,7 @@ def test_analytics_scores_and_payload(session):
     scores = score_fields(result[players[6].id])
     assert scores["powerScore"] == _v2_score([6] * 12, "MED")  # shrunk, calibrated 6s
     assert scores["powerScore"] < 60.0
-    assert scores["economyScore"] is not None
-    # scores all 0s: the raw recent mean is 0, so he is gated out even though
-    # Power v2's shrinkage gives him a small positive quality_ppg.
-    assert score_fields(result[players[0].id])["economyScore"] is None
+    assert "economyScore" not in scores  # retired 2026-10-08
 
     payload = player_analytics_payload(session, players[6].id, [1, 7])
     assert payload["form"]["window"] == 5
@@ -223,6 +220,7 @@ def test_analytics_scores_and_payload(session):
     # Players scoring 0 every week (i % 7 == 0: p0, p7, p14) are gated out by
     # recent_avg despite their shrunk quality_ppg being positive.
     assert payload["valuation"]["fit"]["n"] == 17
+    assert "economy" not in payload
     assert [m["windowDays"] for m in payload["momentum"]] == [1, 7]
 
 

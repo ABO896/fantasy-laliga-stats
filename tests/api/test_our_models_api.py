@@ -38,12 +38,12 @@ def _seed(session, n=20):
     return ids
 
 
-def test_players_carry_power_and_economy(session, client):
+def test_players_carry_power_and_no_economy(session, client):
     ids = _seed(session)
     rows = {r["playerId"]: r for r in client.get("/api/players").json()["players"]}
     # Steady 5s → shrunk toward the MED prior and calibrated (Power v2).
     assert rows[ids[4]]["powerScore"] == _v2_score([5] * 10, "MED")
-    assert 0 <= rows[ids[4]]["economyScore"] <= 100
+    assert "economyScore" not in rows[ids[4]]  # retired 2026-10-08
 
 
 def test_players_carry_the_live_inputs_fields(session, client):
@@ -62,13 +62,13 @@ def test_players_carry_the_live_inputs_fields(session, client):
     assert row["pStart"] is not None
 
 
-def test_squad_members_carry_power_and_economy(session, client):
+def test_squad_members_carry_power_and_no_economy(session, client):
     ids = _seed(session)
     session.add(SquadMember(player_id=ids[0], purchase_price=1, acquired_on=date(2026, 9, 1)))
     session.commit()
     [member] = client.get("/api/squad").json()["members"]
     assert member["powerScore"] == _v2_score([1] * 10, "MED")
-    assert "economyScore" in member
+    assert "economyScore" not in member
 
 
 def test_player_analytics_shows_inputs_and_windows(session, client):

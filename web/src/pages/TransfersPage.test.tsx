@@ -66,7 +66,7 @@ function player(playerId: number, name: string, extra: Partial<TransferPlayer> =
   return {
     playerId, name, team: "Levante", position: "DEL", owned: false, marketValue: 4_600_000,
     availability: "available", starterProbability: 80, recentJornadas: 10, powerScore: 40, powerRank: null,
-    economyScore: 80, fairValue: 9_000_000, valuationGapPct: 95, predictedPct: 1.2,
+    fairValue: 9_000_000, valuationGapPct: 95, predictedPct: 1.2,
     predictionConfidence: "strong", expectedReturn: 5.2, expectedPoints: null,
     expectedPointsUsed: false, backwardPpg: 4.8, minutesFactor: 0.9, fixtureMultiplier: 1.1,
     fixtureDataAvailable: true,

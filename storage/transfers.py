@@ -151,7 +151,6 @@ def build_context(
             expected_points=(xp or {}).get(player.id),
             fair_value=valuation.fair_value if valuation else None,
             valuation_gap=valuation.gap if valuation else None,
-            economy=a.economy if a else None,
             power_score=power.score if power else None,
             predicted_pct=prediction.expected_pct if prediction else None,
             prediction_confidence=m2.confidence_for(prediction) if prediction else None,

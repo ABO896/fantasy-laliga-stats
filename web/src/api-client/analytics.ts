@@ -181,7 +181,6 @@ export interface PlayerAnalytics {
   momentum: MomentumBlock[];
   power: PowerBlock | null;
   valuation: ValuationBlock | null;
-  economy: { score: number | null; basis: string } | null;
   marketPrediction: MarketPrediction | null;
   /** Plan B Task 7 — reliability, points value, 7-day outlook and Power's
    * position rank. Optional so fixtures predating it still type-check; a

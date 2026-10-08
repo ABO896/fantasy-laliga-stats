@@ -93,9 +93,8 @@ function truncatedCell(value: string, maxWidthClass: string) {
 /** ANALYTICS-06 + Task 7. Power's score sortable through the same
  * nulls-last pre-sort as every other numeric column (a null score reads
  * "—", never 0) — and, beside it in muted text, his rank within his own
- * position: "71 · #2". `economyScore` lost this column on Task 7 (it stays
- * in the payload for the transfers page only; see `pointsValuePctColumn`
- * for the table's replacement "who's worth it" number). */
+ * position: "71 · #2". The retired Economy score (removed 2026-10-08) was
+ * replaced by `pointsValuePctColumn`'s "who's worth it" number. */
 const powerScoreColumn: PlayerColumnDef = {
   id: "powerScore",
   accessorFn: (row: PlayerRow) => row.powerScore ?? null,

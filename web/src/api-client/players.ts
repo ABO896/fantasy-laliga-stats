@@ -29,7 +29,6 @@ export interface PlayerRow {
    * fixtures predating it still type-check; null means not enough data. */
   powerScore?: number | null;
   /** ANALYTICS-07 — 0–100 percentile of Power priced (value for money). */
-  economyScore?: number | null;
   /** MODEL-02 — expected points next jornada (0 on a blank jornada); null
    * when no prediction is stored yet. */
   expectedPoints?: number | null;

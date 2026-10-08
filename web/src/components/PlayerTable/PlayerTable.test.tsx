@@ -118,8 +118,8 @@ describe("PlayerTable — Power column and position rank (ANALYTICS-06, Task 7)"
     expect(within(table).getByText("Power")).toBeInTheDocument();
   });
 
-  it("has no Economy column any more — it moved to the transfers page only", () => {
-    const players = [buildPlayer({ playerId: 1, name: "Any", economyScore: 50 })];
+  it("has no Economy column — the score was retired", () => {
+    const players = [buildPlayer({ playerId: 1, name: "Any" })];
 
     render(
       <MemoryRouter>

@@ -41,7 +41,7 @@ def _p(pid, position="MED", mv=10_000_000, ppg=5.0, **kw) -> PlayerInput:
         player_id=pid, name=f"P{pid}", team=f"T{pid}", position=position, market_value=mv,
         source_ideal_bid=mv, source_max_bid=mv, availability="available",
         starter_probability=None, backward_ppg=ppg, recent_jornadas=10,
-        expected_points=None, fair_value=None, valuation_gap=None, economy=None,
+        expected_points=None, fair_value=None, valuation_gap=None,
         power_score=None, predicted_pct=None, prediction_confidence=None,
     )
     base.update(kw)

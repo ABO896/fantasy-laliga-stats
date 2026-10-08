@@ -121,7 +121,6 @@ class PlayerInput:
     expected_points: float | None  # MODEL-02, next jornada; None until it lands
     fair_value: int | None  # ANALYTICS-04
     valuation_gap: float | None  # ANALYTICS-04, fair/market − 1
-    economy: float | None  # ANALYTICS-07
     power_score: float | None  # ANALYTICS-06
     predicted_pct: float | None  # market-v2: expected % change over 7 days
     prediction_confidence: str | None  # market-v2's strong | moderate | weak

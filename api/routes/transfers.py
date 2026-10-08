@@ -67,7 +67,6 @@ def assessment_payload(
         "powerRank": (
             {"rank": power_rank.rank, "of": power_rank.of} if power_rank else None
         ),
-        "economyScore": _r(p.economy, 1),
         "fairValue": p.fair_value,
         "valuationGapPct": _r(p.valuation_gap * 100, 1) if p.valuation_gap is not None else None,
         "predictedPct": _r(p.predicted_pct, 3),

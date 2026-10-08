@@ -19,7 +19,6 @@ export interface SquadMemberRow {
   /** ANALYTICS-06/07 — see `PlayerRow`. Comparing same-position members'
    * Power is how the squad page answers "who should I start". */
   powerScore?: number | null;
-  economyScore?: number | null;
   /** MODEL-02 — see `PlayerRow`. Same-position xP side by side answers
    * "who do I start" for the next jornada. */
   expectedPoints?: number | null;

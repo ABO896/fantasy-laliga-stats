@@ -24,7 +24,6 @@ _EMPTY = {
     "momentum": [],
     "power": None,
     "valuation": None,
-    "economy": None,
     "marketPrediction": None,
     # Plan B Task 7.
     "powerRank": None,

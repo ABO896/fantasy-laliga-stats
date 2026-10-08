@@ -145,7 +145,6 @@ class PlayerAnalytics:
     power_inputs: an.PowerInputs | None
     power: an.PowerResult | None
     valuation: an.ValuationResult | None
-    economy: float | None
     market_value: int | None
 
 
@@ -154,7 +153,7 @@ def compute_player_analytics(
     now: datetime | None = None,
     season: int | None = None,
 ) -> dict[int, PlayerAnalytics]:
-    """Power, Economy and their components for every player in the latest
+    """Power, the valuation and their components for every player in the latest
     snapshot.
 
     Power v2 reads his current-season points per team match, shrunk toward
@@ -203,7 +202,6 @@ def compute_player_analytics(
                                                 availability=availability))
 
     vals = an.valuations(val_inputs)
-    econ = an.economy_scores(vals)
     return {
         pid: PlayerAnalytics(
             player_id=pid,
@@ -213,7 +211,6 @@ def compute_player_analytics(
             power_inputs=inputs,
             power=power,
             valuation=vals.get(pid),
-            economy=econ.get(pid),
             market_value=market_value,
         )
         for pid, (series, inputs, power, market_value) in partial.items()
@@ -221,11 +218,8 @@ def compute_player_analytics(
 
 
 def score_fields(a: PlayerAnalytics | None) -> dict:
-    """The two headline numbers, as the browser and squad payloads carry them."""
-    return {
-        "powerScore": round(a.power.score, 1) if a and a.power else None,
-        "economyScore": round(a.economy, 1) if a and a.economy is not None else None,
-    }
+    """The headline score, as the browser and squad payloads carry it."""
+    return {"powerScore": round(a.power.score, 1) if a and a.power else None}
 
 
 def _round(x: float | None, n: int = 2) -> float | None:
@@ -413,11 +407,6 @@ def player_analytics_payload(
                 "rSquared": _round(fit.r_squared, 3),
                 "pooled": fit.pooled,
             },
-        },
-        "economy": a and {
-            "score": _round(a.economy, 1),
-            "basis": "percentile of the log-log valuation gap among valued players "
-                     "(starter > 30%, ≥ 3 matches this season, available)",
         },
         "marketPrediction": prediction and _prediction_payload(prediction),
         "ranks": ranks,

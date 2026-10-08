@@ -39,7 +39,6 @@ export interface TransferPlayer {
   powerScore: number | null;
   /** Within-position Power rank, as the player table shows it ("71 · #2"). */
   powerRank: { rank: number; of: number } | null;
-  economyScore: number | null;
   fairValue: number | null;
   valuationGapPct: number | null;
   predictedPct: number | null;
