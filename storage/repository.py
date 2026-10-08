@@ -142,10 +142,60 @@ def get_recent_runs(session: Session, limit: int = 10) -> list[ScrapeRun]:
     )
 
 
-def has_running_run(session: Session) -> bool:
+#: A run still `running` after this long was killed (a `--reload` restart,
+#: Ctrl-C) — even a complete refresh finishes well inside it.
+STALE_RUN_AGE = timedelta(hours=2)
+INTERRUPTED = "interrupted: still running after 2h"
+
+
+def close_stale_runs(session: Session, now: datetime, max_age: timedelta = STALE_RUN_AGE) -> int:
+    """Mark every `running` run older than `max_age` — and its `running`
+    dataset runs — `failed`, so a killed process cannot block every later
+    refresh. Returns how many runs it closed."""
+    cutoff = now - max_age
+    stale = [
+        r for r in session.exec(select(ScrapeRun).where(ScrapeRun.status == "running")).all()
+        if as_utc(r.started_at) < cutoff
+    ]
+    for run in stale:
+        for ds in session.exec(
+            select(DatasetRun)
+            .where(DatasetRun.scrape_run_id == run.id)
+            .where(DatasetRun.status == "running")
+        ).all():
+            ds.status = "failed"
+            ds.finished_at = now
+            ds.errors = json.dumps([INTERRUPTED])
+            session.add(ds)
+        run.status = "failed"
+        run.finished_at = now
+        run.validation_errors = json.dumps([INTERRUPTED])
+        session.add(run)
+    # A dataset left `running` under a run that already finished (the
+    # process died mid-dataset after an older lifecycle settled the run).
+    orphans = session.exec(
+        select(DatasetRun)
+        .join(ScrapeRun, ScrapeRun.id == DatasetRun.scrape_run_id)
+        .where(DatasetRun.status == "running")
+        .where(ScrapeRun.status != "running")
+    ).all()
+    for ds in orphans:
+        ds.status = "failed"
+        ds.finished_at = now
+        ds.errors = json.dumps(["interrupted: its run had already finished"])
+        session.add(ds)
+    if stale or orphans:
+        session.commit()
+    return len(stale)
+
+
+def has_running_run(session: Session, now: datetime | None = None) -> bool:
     """True while a `ScrapeRun` is in the `running` state — the
-    single-flight guard `POST /api/scrape/trigger` uses to refuse a second
-    concurrent scrape (T-05-01)."""
+    single-flight guard `POST /api/scrape/trigger` and `python -m
+    scraper.run` use to refuse a second concurrent scrape (T-05-01). A run
+    is `running` from its start until its last step, and stale ones are
+    closed first (`close_stale_runs`)."""
+    close_stale_runs(session, now or datetime.now(UTC))
     return session.exec(select(ScrapeRun).where(ScrapeRun.status == "running")).first() is not None
 
 

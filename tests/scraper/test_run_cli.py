@@ -12,8 +12,17 @@ itself) specifically so it stays trivially testable here without needing
 from datetime import UTC, datetime
 from unittest.mock import patch
 
+import pytest
+
 from scraper.run import main
+from storage.db import set_engine
 from storage.models import ScrapeRun
+
+
+@pytest.fixture(autouse=True)
+def _empty_db(engine):
+    """`main()` checks for a running refresh before starting one."""
+    set_engine(engine)
 
 
 def _fake_run(status: str, row_count: int = 0) -> ScrapeRun:

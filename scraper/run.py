@@ -67,6 +67,7 @@ from storage.repository import (
     finish_dataset_run,
     finish_run,
     get_dataset_runs,
+    has_running_run,
     purge_old_raw_scrapes,
     replace_predictions,
     replace_snapshots,
@@ -495,6 +496,10 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
         session.commit()
 
         market_dataset_run = start_dataset_run(session, run.id, "market")
+        # The market step's outcome, written to the run only after the last
+        # step: until then the run stays `running`, which is what the
+        # single-flight guard (`has_running_run`) and the UI's polling read.
+        outcome: dict = {"status": "failed", "row_count": 0, "errors": None}
         try:
             try:
                 pages = fetch_pages(settings)
@@ -515,13 +520,11 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
 
                 validation = validate_scrape(records, settings)
                 if not validation.ok:
-                    finish_run(
-                        session,
-                        run,
-                        status="rejected",
-                        row_count=validation.row_count,
-                        errors=validation.reasons,
-                    )
+                    outcome = {
+                        "status": "rejected",
+                        "row_count": validation.row_count,
+                        "errors": validation.reasons,
+                    }
                     finish_dataset_run(
                         session,
                         market_dataset_run,
@@ -544,14 +547,14 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
                     # own docstring.
                     replace_snapshots(session, as_of, snapshots)
 
-                    finish_run(session, run, status="success", row_count=len(records))
+                    outcome = {"status": "success", "row_count": len(records), "errors": None}
                     finish_dataset_run(
                         session, market_dataset_run, "success", row_count=len(records)
                     )
             except ScrapeError as exc:
                 session.rollback()
                 errors = [f"{type(exc).__name__}: {exc}"]
-                finish_run(session, run, status="failed", row_count=0, errors=errors)
+                outcome = {"status": "failed", "row_count": 0, "errors": errors}
                 finish_dataset_run(session, market_dataset_run, "failed", errors=errors)
             except Exception as exc:
                 session.rollback()
@@ -595,13 +598,11 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
                 # "rejected" is left alone: it is a distinct, more specific
                 # outcome from the validation gate, not something a dataset
                 # failure should overwrite or be overwritten by.
-                if run.status == "success" and any(
+                if outcome["status"] == "success" and any(
                     d.status == "failed" and d.dataset not in EXTERNAL_DATASETS
                     for d in get_dataset_runs(session, run.id)
                 ):
-                    run.status = "failed"
-                    session.add(run)
-                    session.commit()
+                    outcome["status"] = "failed"
 
                 # External sources (INGEST-09/10) run last and never touch
                 # the run's status: each records its own `DatasetRun`, and
@@ -613,6 +614,7 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
                 # degrade it. `run_our_models` catches everything itself.
                 run_our_models(session, run)
                 run_expected_points(session, run)
+                finish_run(session, run, **outcome)
             except Exception as exc:
                 # An `ingest_*` only catches `ScrapeNotPublished` and
                 # `(ScrapeError, ValueError)` — anything else (a genuine
@@ -654,7 +656,8 @@ def main(argv: list[str] | None = None) -> int:
     detect failure without parsing stdout.
 
     No flag runs the quick refresh; `--mine` adds the squad and watchlist
-    player pages, `--full` every due player page (mutually exclusive)."""
+    player pages, `--full` every due player page (mutually exclusive).
+    Returns 2, starting nothing, while another refresh is running."""
     parser = argparse.ArgumentParser(prog="python -m scraper.run")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -667,6 +670,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.set_defaults(mode="quick")
     args = parser.parse_args(argv)
+
+    # The same single-flight guard as `POST /api/scrape/trigger`, so a
+    # terminal refresh cannot race one started from the app.
+    with Session(get_engine()) as session:
+        if has_running_run(session):
+            print("A refresh is already running; not starting another.")
+            return 2
 
     result = run_daily_refresh(mode=args.mode)
     print(f"Scrape run {result.id} finished with status={result.status!r}, rows={result.row_count}")
