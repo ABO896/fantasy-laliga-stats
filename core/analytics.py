@@ -12,12 +12,14 @@ Formulas, windows and the reasoning behind each constant are in
 
 import math
 import statistics
-from collections.abc import Collection, Iterable, Sequence
+from collections import defaultdict
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import NamedTuple
 
 from core import expected_points as xp
+from core.xp_backtest import MIN_TEAM_ROWS
 
 #: Last N timeline jornadas that make up "form".
 FORM_WINDOW = 5
@@ -120,6 +122,23 @@ def player_series(
             out.append(0)
     out.reverse()
     return out
+
+
+def team_played_weeks(
+    rows: Iterable[GameweekRow], team_of: Mapping[int, str]
+) -> dict[str, set[tuple[int, int]]]:
+    """Per club, the weeks it played: at least `MIN_TEAM_ROWS` of its (current)
+    players have a row. The same test MODEL-02's history already uses."""
+    counts: dict[tuple[str, int, int], int] = defaultdict(int)
+    for r in rows:
+        team = team_of.get(r.player_id)
+        if team is not None:
+            counts[(team, r.season_year, r.week)] += 1
+    out: dict[str, set[tuple[int, int]]] = defaultdict(set)
+    for (team, season, week), n in counts.items():
+        if n >= MIN_TEAM_ROWS:
+            out[team].add((season, week))
+    return dict(out)
 
 
 # --- ANALYTICS-01 form ------------------------------------------------------------

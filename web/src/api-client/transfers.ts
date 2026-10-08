@@ -1,4 +1,5 @@
 import { apiFetch } from "./client";
+import type { VerdictLabel } from "./verdict";
 
 /** Phase 11 — /api/transfers/*. Everything is computed server-side; the page
  * renders what it is given and never re-derives a score, a bid or a rule. */
@@ -36,6 +37,8 @@ export interface TransferPlayer {
   starterProbability: number | null;
   recentJornadas: number;
   powerScore: number | null;
+  /** Within-position Power rank, as the player table shows it ("71 · #2"). */
+  powerRank: { rank: number; of: number } | null;
   economyScore: number | null;
   fairValue: number | null;
   valuationGapPct: number | null;
@@ -54,6 +57,9 @@ export interface TransferPlayer {
   holdValue: number | null;
   evidence: number;
   bids: BidNumbers;
+  /** Plan C Task 5/6 — null only when this player has no live verdict
+   * (no snapshot/inputs yet), same condition as a null `powerScore`. */
+  verdict: { label: VerdictLabel; reason: string } | null;
 }
 
 export interface DatasetFreshness {
@@ -96,6 +102,10 @@ export interface Move {
   confidenceLabel: ConfidenceLabel;
   confidenceReasons: string[];
   feasibleFormations: string[];
+  /** Plan C Task 6 — the server's own "Sell X (label) → buy Y (label)" /
+   * "Add Y (label)" sentence; the card's heading leads with this rather
+   * than recomposing it from `sell`/`buy` names and labels client-side. */
+  phrase: string;
 }
 
 export interface SuggestionsResponse extends Envelope {

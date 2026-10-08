@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import type { SquadMemberRow } from "../../api-client/squad";
 import { formatEuroAbbreviated } from "../../lib/format";
+import VerdictChip from "../verdict/VerdictChip";
 
 const POSITION_NAMES: Record<string, string> = {
   POR: "goalkeeper",
@@ -11,6 +12,15 @@ const POSITION_NAMES: Record<string, string> = {
 
 function formatScore(value: number | null | undefined): string {
   return value === null || value === undefined ? "—" : Math.round(value).toString();
+}
+
+/** "PWR 71 #2 · VAL 84" — Power's score, his rank within the position when
+ * there is one, and the points-value percentile. Built as one string (not
+ * interpolated across JSX children) so the rank's leading space never
+ * depends on JSX's whitespace-collapsing rules. */
+function powerLine(player: SquadMemberRow): string {
+  const rank = player.powerRank ? ` #${player.powerRank.rank}` : "";
+  return `PWR ${formatScore(player.powerScore)}${rank} · VAL ${formatScore(player.pointsValuePct)}`;
 }
 
 interface PlayerCardProps {
@@ -70,10 +80,14 @@ export default function PlayerCard({
           </span>
         </span>
         <span className="flex flex-wrap gap-x-sm text-xs">
-          {/* ANALYTICS-06/07. Side by side with a same-position teammate's
-              card, Power is the "who should I start" comparison. */}
-          <span className="tabular muted" title="Power Score · Economy Score (0–100)">
-            PWR {formatScore(player.powerScore)} · ECO {formatScore(player.economyScore)}
+          {/* ANALYTICS-06 + Task 7. Side by side with a same-position
+              teammate's card, Power (and his rank within the position) and
+              points Value are the "who should I start" comparison. */}
+          <span
+            className="tabular muted"
+            title="Power Score (0–100) and position rank · Value: points above a cheap regular starter, per € (percentile within position)"
+          >
+            {powerLine(player)}
           </span>
           {/* MODEL-02: expected points for the next jornada. */}
           <span
@@ -85,6 +99,8 @@ export default function PlayerCard({
               ? "—"
               : player.expectedPoints.toFixed(1)}
           </span>
+          {/* Plan C Task 6 — the verdict label every surface agrees on. */}
+          {player.verdict && <VerdictChip label={player.verdict.label} size="sm" />}
         </span>
         {player.availability !== "available" && (
           <span className="mt-[2px] inline-block rounded-[var(--radius-sm)] bg-[color:var(--color-warning)]/15 px-[5px] text-[11px] font-semibold capitalize text-[color:var(--color-warning)]">

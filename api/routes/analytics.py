@@ -26,6 +26,18 @@ _EMPTY = {
     "valuation": None,
     "economy": None,
     "marketPrediction": None,
+    # Plan B Task 7.
+    "powerRank": None,
+    "reliability": None,
+    "evidence": None,
+    "pointsValue": None,
+    "priceOutlook": None,
+    "expectedReturnEur": None,
+    "inputsConfidence": None,
+    "dataThrough": None,
+    # Plan D Task 1.
+    "ranks": None,
+    "xp": None,
 }
 
 

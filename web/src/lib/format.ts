@@ -49,6 +49,15 @@ export function pluralize(count: number, singular: string): string {
   return `${count} ${singular}${count === 1 ? "" : "s"}`;
 }
 
+/** 4.2 -> "+4.2"; -1.8 -> "−1.8" — a real minus sign (U+2212), not the ASCII
+ * hyphen, so a negative step value in a formula or step table doesn't read
+ * as a dash or a typo. 0 -> "0.0", unsigned. */
+export function signedNumber(value: number, decimals = 1): string {
+  if (value === 0) return value.toFixed(decimals);
+  const sign = value > 0 ? "+" : "−";
+  return `${sign}${Math.abs(value).toFixed(decimals)}`;
+}
+
 /** "2026-08-06" -> "6 Aug" — a compact date for chart axes/captions. Always
  * read as UTC: `asOf` values are UTC-midnight ISO dates, and formatting
  * them in the viewer's local timezone can roll the displayed day backward

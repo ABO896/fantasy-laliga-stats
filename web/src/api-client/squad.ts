@@ -1,5 +1,7 @@
 import { API_BASE_URL, apiFetch } from "./client";
 import type { GameweekPointsRow } from "./player-detail";
+import type { PowerRank } from "./players";
+import type { VerdictSummary } from "./verdict";
 
 export type SquadRole = "starter" | "bench" | "reserve";
 
@@ -22,6 +24,18 @@ export interface SquadMemberRow {
    * "who do I start" for the next jornada. */
   expectedPoints?: number | null;
   expectedPointsBasis?: string | null;
+  /** Plan B Task 7 — see `PlayerRow`. Comparing same-position members' Power
+   * rank and points value is "who should I start". */
+  powerRank?: PowerRank | null;
+  reliabilityClass?: string | null;
+  pStart?: number | null;
+  pointsValuePct?: number | null;
+  outlookPct?: number | null;
+  outlookDirection?: "rise" | "flat" | "fall" | null;
+  dropRisk?: boolean | null;
+  xptsWindow?: number | null;
+  /** Plan C Task 5 — see `PlayerRow`. */
+  verdict?: VerdictSummary | null;
 }
 
 export interface SquadViolation {

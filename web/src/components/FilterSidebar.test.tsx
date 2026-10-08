@@ -27,6 +27,7 @@ const EMPTY: PlayerFilters = {
   positions: [],
   teams: [],
   availability: [],
+  verdict: [],
   maxPrice: null,
   priceBasis: "marketValue",
 };
@@ -56,6 +57,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     });
@@ -66,6 +68,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     };
@@ -75,6 +78,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: ["injured"],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     });
@@ -85,6 +89,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     };
@@ -94,6 +99,7 @@ describe("FilterSidebar", () => {
       positions: [],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     });
@@ -110,6 +116,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: ["Sevilla"],
       availability: ["injured"],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     };
@@ -124,6 +131,7 @@ describe("FilterSidebar", () => {
       positions: [],
       teams: ["Sevilla"],
       availability: ["injured"],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     });
@@ -134,6 +142,7 @@ describe("FilterSidebar", () => {
       positions: [],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: 4_100_000,
       priceBasis: "idealBid",
     };
@@ -149,6 +158,7 @@ describe("FilterSidebar", () => {
       positions: [],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
       watchlistOnly: false,
@@ -160,6 +170,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: 4_100_000,
       priceBasis: "marketValue",
     };
@@ -170,6 +181,7 @@ describe("FilterSidebar", () => {
       positions: ["DEF"],
       teams: [],
       availability: [],
+      verdict: [],
       maxPrice: null,
       priceBasis: "marketValue",
     });
@@ -183,6 +195,37 @@ describe("FilterSidebar", () => {
     expect(onChange).toHaveBeenCalledWith(
       expect.objectContaining({ maxPrice: 4_100_000 }),
     );
+  });
+
+  it("verdict_facet_toggles_like_every_other_facet (Plan C Task 6)", () => {
+    const onChange = renderSidebar(EMPTY, players);
+    fireEvent.click(screen.getByRole("checkbox", { name: "Elite" }));
+    expect(onChange).toHaveBeenCalledWith({
+      positions: [],
+      teams: [],
+      availability: [],
+      verdict: ["Elite"],
+      maxPrice: null,
+      priceBasis: "marketValue",
+    });
+  });
+
+  it("verdict_options_follow_LABELS_priority_order_not_alphabetical", () => {
+    renderSidebar(EMPTY, players);
+    const legend = screen.getByText("Verdict").closest("fieldset")!;
+    const labels = Array.from(legend.querySelectorAll("label")).map((l) => l.textContent?.trim());
+    expect(labels).toEqual([
+      "Unavailable",
+      "Unproven",
+      "Sell high",
+      "Elite",
+      "Bargain",
+      "Rising",
+      "Rotation risk",
+      "Overpriced",
+      "Avoid",
+      "Fair price",
+    ]);
   });
 
   it("teams_derived_from_data", () => {
@@ -223,5 +266,21 @@ describe("FilterSidebar", () => {
       fireEvent.click(screen.getByText("Watchlist ×"));
       expect(onChange).toHaveBeenCalledWith({ ...value, watchlistOnly: false });
     });
+  });
+});
+
+describe("FilterSidebar — disabled verdict labels (final review #11)", () => {
+  it("offers no checkbox for a label live verdicts never give", () => {
+    render(
+      <FilterSidebar
+        value={EMPTY}
+        onChange={vi.fn()}
+        players={[buildPlayer({ playerId: 1 })]}
+        disabledLabels={["Rotation risk", "Sell high"]}
+      />,
+    );
+    expect(screen.queryByLabelText("Rotation risk")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Sell high")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Elite")).toBeInTheDocument();
   });
 });

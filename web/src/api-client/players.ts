@@ -1,4 +1,13 @@
 import { apiFetch } from "./client";
+import type { VerdictSummary } from "./verdict";
+
+/** Plan B Task 7 — the compact shape `powerRank` takes on list/squad rows:
+ * just enough to render "#2", never the percentile (that's the analytics
+ * payload's fuller `RankBlock`, see `api-client/analytics.ts`). */
+export interface PowerRank {
+  rank: number;
+  of: number;
+}
 
 export interface PlayerRow {
   playerId: number;
@@ -27,6 +36,26 @@ export interface PlayerRow {
   /** What xP was built from: form, form+starter, form+odds,
    * form+starter+odds, or no_fixture. */
   expectedPointsBasis?: string | null;
+  /** Plan B Task 7 — reliability, points value, 7-day outlook and Power's
+   * position rank, computed live for today. Optional so fixtures predating
+   * it still type-check; null means the player has no live inputs yet
+   * (no snapshot and no price at all). */
+  powerRank?: PowerRank | null;
+  reliabilityClass?: string | null;
+  /** Reliability's shrunk starter probability next match, 0–1. */
+  pStart?: number | null;
+  /** Percentile (0–100) within position of points value per €. */
+  pointsValuePct?: number | null;
+  /** Expected 7-day price move, signed %. */
+  outlookPct?: number | null;
+  outlookDirection?: "rise" | "flat" | "fall" | null;
+  dropRisk?: boolean | null;
+  /** Expected points over the look-ahead window (spec's `horizon`). */
+  xptsWindow?: number | null;
+  /** Plan C Task 5 — the verdict label every surface agrees on. Optional
+   * so fixtures predating it still type-check; null means no live inputs
+   * (same condition as a null `powerRank`). */
+  verdict?: VerdictSummary | null;
 }
 
 export interface PlayersResponse {

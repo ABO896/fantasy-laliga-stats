@@ -22,6 +22,7 @@ from api.routes import (
     squad,
     stats,
     transfers,
+    verdict,
     watchlist,
 )
 from core.config import get_settings
@@ -59,6 +60,7 @@ app.include_router(analytics.router, prefix="/api")
 app.include_router(market_model.router, prefix="/api")
 app.include_router(expected_points.router, prefix="/api")
 app.include_router(transfers.router, prefix="/api")
+app.include_router(verdict.router, prefix="/api")
 
 
 if __name__ == "__main__":

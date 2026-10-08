@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { fetchPlayerDetail, PlayerNotFoundError } from "../api-client/player-detail";
 import EmptyState from "../components/EmptyState";
-import ExpectedPointsLine from "../components/player-detail/ExpectedPointsLine";
 import PlayerAnalyticsPanel from "../components/player-detail/PlayerAnalyticsPanel";
 import PointsPerJornadaChart from "../components/player-detail/PointsPerJornadaChart";
 import SeasonStatsTable from "../components/player-detail/SeasonStatsTable";
@@ -11,6 +10,7 @@ import VerdictStrip from "../components/player-detail/VerdictStrip";
 import WatchlistToggle from "../components/WatchlistToggle";
 import PosBadge from "../components/ui/PosBadge";
 import OurBidCard from "../components/transfers/OurBidCard";
+import VerdictBanner from "../components/verdict/VerdictBanner";
 
 export default function PlayerDetail() {
   const { playerId } = useParams();
@@ -102,6 +102,7 @@ export default function PlayerDetail() {
         </p>
       </header>
 
+      <VerdictBanner playerId={player.playerId} />
       <VerdictStrip latest={data.latest} squad={data.squad} predictions={data.predictions} />
       <OurBidCard playerId={player.playerId} />
 
@@ -127,7 +128,6 @@ export default function PlayerDetail() {
           <SeasonStatsTable seasons={data.seasonStats} />
         </section>
         <div className="flex min-w-0 flex-col gap-lg">
-          <ExpectedPointsLine playerId={player.playerId} />
           <PlayerAnalyticsPanel playerId={player.playerId} />
         </div>
       </div>

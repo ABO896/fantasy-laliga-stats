@@ -20,6 +20,19 @@ vi.mock("../api-client/watchlist", () => ({
 
 import { addToWatchlist, fetchWatchlist } from "../api-client/watchlist";
 
+vi.mock("../api-client/verdict", async () => {
+  const actual =
+    await vi.importActual<typeof import("../api-client/verdict")>("../api-client/verdict");
+  return {
+    ...actual,
+    fetchVerdictValidation: vi.fn().mockResolvedValue({
+      generatedAt: null, labels: [], disabledLabels: [],
+    }),
+  };
+});
+
+import { fetchVerdictValidation } from "../api-client/verdict";
+
 function buildPlayer(overrides: Partial<PlayerRow> & { playerId: number }): PlayerRow {
   return {
     externalId: `player-${overrides.playerId}`,
@@ -253,10 +266,16 @@ describe("PlayerBrowser", () => {
   });
 
   it("single_and_null_rendering", async () => {
-    // Scores set so the one em dash asserted below is price/point's own.
+    // Scores set so the one em dash asserted below is price/point's own —
+    // every other visible-by-default numeric column (Task 7's Value/Plays/
+    // 7d outlook, and Plan C Task 6's Verdict, included) gets a non-null
+    // value too.
     mockPlayers([
       buildPlayer({
         playerId: 1, pricePerPoint: null, powerScore: 50, economyScore: 50, expectedPoints: 3,
+        pointsValuePct: 40, reliabilityClass: "Regular", pStart: 0.6, outlookPct: 1.2,
+        outlookDirection: "rise", dropRisk: false,
+        verdict: { label: "Fair price", tags: [], confidence: "medium" },
       }),
     ]);
     renderWithClient(<PlayerBrowser />);
@@ -649,5 +668,20 @@ describe("PlayerBrowser", () => {
       await screen.findByText("Your watchlist is empty");
       expect(screen.queryByText("Someone")).not.toBeInTheDocument();
     });
+  });
+});
+
+describe("PlayerBrowser — disabled verdict labels (final review #11)", () => {
+  it("hides the verdict filter for labels live verdicts skip", async () => {
+    mockPlayers([buildPlayer({ playerId: 1, name: "Someone" })]);
+    vi.mocked(fetchVerdictValidation).mockResolvedValueOnce({
+      generatedAt: null, labels: [], disabledLabels: ["Rotation risk"],
+    });
+    renderWithClient(<PlayerBrowser />);
+    await screen.findByText("Someone");
+    await waitFor(() =>
+      expect(screen.queryByLabelText("Rotation risk")).not.toBeInTheDocument(),
+    );
+    expect(screen.getByLabelText("Elite")).toBeInTheDocument();
   });
 });

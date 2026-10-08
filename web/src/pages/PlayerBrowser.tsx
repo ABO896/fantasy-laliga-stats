@@ -5,6 +5,7 @@ import { useSearchParams } from "react-router-dom";
 import { fetchPlayers } from "../api-client/players";
 import type { PlayerRow } from "../api-client/players";
 import { addSquadPlayer, SquadRuleError } from "../api-client/squad";
+import { fetchVerdictValidation } from "../api-client/verdict";
 import AddToSquadDialog from "../components/AddToSquadDialog";
 import PlayerTable from "../components/PlayerTable/PlayerTable";
 import TableSkeleton from "../components/PlayerTable/TableSkeleton";
@@ -39,6 +40,7 @@ export default function PlayerBrowser() {
       positions: searchParams.getAll("pos"),
       teams: searchParams.getAll("team"),
       availability: searchParams.getAll("avail"),
+      verdict: searchParams.getAll("verdict"),
       maxPrice: parseMaxPrice(searchParams),
       priceBasis: (searchParams.get("basis") as PlayerFilters["priceBasis"]) ?? "marketValue",
       watchlistOnly: searchParams.get("watch") === "1",
@@ -59,6 +61,8 @@ export default function PlayerBrowser() {
     next.teams.forEach((t) => params.append("team", t));
     params.delete("avail");
     next.availability.forEach((a) => params.append("avail", a));
+    params.delete("verdict");
+    next.verdict.forEach((v) => params.append("verdict", v));
     if (next.maxPrice === null) params.delete("max");
     else params.set("max", String(next.maxPrice));
     params.set("basis", next.priceBasis);
@@ -83,6 +87,12 @@ export default function PlayerBrowser() {
   const { data, isLoading, isError, refetch } = useQuery({
     queryKey: ["players"],
     queryFn: fetchPlayers,
+  });
+  // Shares the Stats tab's key: the live disabled labels ride on the
+  // validation report, so the verdict filter offers only labels in use.
+  const { data: validation } = useQuery({
+    queryKey: ["verdict-validation"],
+    queryFn: fetchVerdictValidation,
   });
 
   const queryClient = useQueryClient();
@@ -146,6 +156,7 @@ export default function PlayerBrowser() {
     if (filters.availability.length > 0) {
       next.push({ id: "availabilityStatus", value: filters.availability });
     }
+    if (filters.verdict.length > 0) next.push({ id: "verdict", value: filters.verdict });
     if (filters.maxPrice !== null) {
       next.push({ id: filters.priceBasis, value: filters.maxPrice });
     }
@@ -207,6 +218,7 @@ export default function PlayerBrowser() {
         onChange={setFilters}
         players={players}
         watchlistCount={watchedIds?.length}
+        disabledLabels={validation?.disabledLabels}
       />
       <PlayerTable
         players={shownPlayers}

@@ -7,6 +7,7 @@ import {
   type SortingState,
 } from "@tanstack/react-table";
 import type { PlayerRow } from "../../api-client/players";
+import { VERDICT_LABELS } from "../../api-client/verdict";
 import {
   createPlayerColumns,
   features,
@@ -30,8 +31,21 @@ const SORT_ACCESSORS: Record<string, (p: PlayerRow) => number | null> = {
   pricePerPoint: (p) => p.pricePerPoint,
   starterProbability: (p) => p.starterProbability,
   powerScore: (p) => p.powerScore ?? null,
-  economyScore: (p) => p.economyScore ?? null,
   expectedPoints: (p) => p.expectedPoints ?? null,
+  // Task 7. "Plays" sorts by its underlying pStart, not the class string —
+  // see columns.tsx's reliabilityClassColumn, which declares the matching
+  // sortFn for header-click sorting.
+  pointsValuePct: (p) => p.pointsValuePct ?? null,
+  reliabilityClass: (p) => p.pStart ?? null,
+  outlookPct: (p) => p.outlookPct ?? null,
+  // Plan C Task 6. Sorts by LABELS priority order, not alphabetically —
+  // see columns.tsx's verdictColumn, which declares the matching sortFn
+  // for header-click sorting.
+  verdict: (p) => {
+    if (!p.verdict) return null;
+    const idx = VERDICT_LABELS.indexOf(p.verdict.label);
+    return idx === -1 ? null : idx;
+  },
 };
 
 /** Columns whose header and cells right-align on tabular figures. */

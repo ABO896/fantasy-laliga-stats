@@ -1,4 +1,5 @@
 import { render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -21,11 +22,19 @@ vi.mock("../../api-client/market-model", async () => {
   };
 });
 
+vi.mock("../../api-client/verdict", async () => {
+  const actual = await vi.importActual<typeof import("../../api-client/verdict")>(
+    "../../api-client/verdict",
+  );
+  return { ...actual, fetchVerdictValidation: vi.fn() };
+});
+
 import {
   fetchDivergence,
   fetchMarketPredictions,
   fetchTrackRecord,
 } from "../../api-client/market-model";
+import { fetchVerdictValidation } from "../../api-client/verdict";
 import { formatRate, tierRecord } from "../../lib/marketRecord";
 import MarketModelTab from "./MarketModelTab";
 
@@ -92,6 +101,27 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     });
     vi.mocked(fetchTrackRecord).mockResolvedValue(record(bucket(0, 0, 556), bucket(6218, 5776)));
     vi.mocked(fetchDivergence).mockResolvedValue(DIVERGENCE);
+    vi.mocked(fetchVerdictValidation).mockResolvedValue({ generatedAt: null, labels: [], disabledLabels: [] });
+  });
+
+  it("shows the verdict validation section, with the refresh instruction before a report exists (Plan C Task 6)", async () => {
+    renderTab();
+    expect(await screen.findByText("Verdict validation")).toBeInTheDocument();
+    expect(await screen.findByText(/verdict_backtest --write/)).toBeInTheDocument();
+  });
+
+  it("renders the stored report's label rows once one exists", async () => {
+    vi.mocked(fetchVerdictValidation).mockResolvedValue({
+      generatedAt: "2026-10-01T00:00:00Z",
+      disabledLabels: [],
+      labels: [
+        { label: "Sell high", metric: "price_pct", n: 40, players: 12, hitRate: 0.5,
+          baseRate: 0.52, meanDiff: -0.1, ciLow: -0.3, ciHigh: 0.1, beatsChance: false },
+      ],
+    });
+    renderTab();
+    expect(await screen.findByText("Sell high")).toBeInTheDocument();
+    expect(screen.getByText("✗")).toBeInTheDocument();
   });
 
   it("lists risers and fallers with their confidence", async () => {
@@ -112,6 +142,30 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     expect(await screen.findByText("Where we disagree with the source")).toBeInTheDocument();
     expect(await screen.findByText("Antony")).toBeInTheDocument();
     expect(screen.getByText("disagree")).toBeInTheDocument();
+  });
+
+  it("switches to the v2 7-day track record on toggle, and fetches it by version", async () => {
+    vi.mocked(fetchTrackRecord).mockImplementation((version: string = "market-v1") =>
+      Promise.resolve(
+        version === "market-v2"
+          ? {
+              modelVersion: "market-v2",
+              ours: { live: bucket(0, 0), retroactive: bucket(50, 40) },
+              intervalCoverage: 0.82,
+              mae: 1.2,
+              naive: { rule: "next week repeats last week", hitRate: 0.6, mae: 1.8 },
+            }
+          : record(bucket(0, 0, 556), bucket(6218, 5776)),
+      ),
+    );
+    renderTab();
+    await screen.findByText("Riser");
+
+    await userEvent.click(screen.getByText("v2 · 7-day"));
+
+    expect(await screen.findByText(/Interval coverage/)).toBeInTheDocument();
+    expect(screen.getAllByText(/next week repeats last week/).length).toBeGreaterThan(0);
+    expect(fetchTrackRecord).toHaveBeenCalledWith("market-v2");
   });
 });
 

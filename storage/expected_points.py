@@ -98,20 +98,38 @@ def _latest_snapshots(session: Session) -> dict[int, PlayerSnapshot]:
     return {r.player_id: r for r in rows}
 
 
-def _odds_context(session: Session, season: int, f: Fixture, team: str) -> xp.FixtureContext:
-    home = team == f.home_team
-    opponent = f.away_team if home else f.home_team
-    match = session.get(ExternalMatch, (ODDS_SOURCE, season, f.home_team, f.away_team))
+def odds_probabilities(
+    session: Session, season: int, home: str, away: str, team: str
+) -> tuple[float | None, float | None]:
+    """`(team_goals, clean_sheet)` for `team`'s side of `home` vs `away`, from
+    the stored `ExternalMatch` odds. `(None, None)` with no stored pairing or
+    an incomplete 1X2 book — shared by `_odds_context` (next jornada's xP)
+    and `storage.inputs.live_upcoming` (the live window), so the two never
+    drift on how a fixture's odds are read."""
+    match = session.get(ExternalMatch, (ODDS_SOURCE, season, home, away))
     probs = match and match_probabilities(
         match.odds_home, match.odds_draw, match.odds_away, match.odds_over25, match.odds_under25
     )
     if not probs:
+        return None, None
+    is_home = team == home
+    return (
+        (probs.exp_goals_home, probs.p_clean_sheet_home) if is_home
+        else (probs.exp_goals_away, probs.p_clean_sheet_away)
+    )
+
+
+def _odds_context(session: Session, season: int, f: Fixture, team: str) -> xp.FixtureContext:
+    home = team == f.home_team
+    opponent = f.away_team if home else f.home_team
+    team_goals, clean_sheet = odds_probabilities(session, season, f.home_team, f.away_team, team)
+    if team_goals is None:
         return xp.FixtureContext(opponent=opponent, is_home=home)
     return xp.FixtureContext(
         opponent=opponent,
         is_home=home,
-        team_goals=probs.exp_goals_home if home else probs.exp_goals_away,
-        clean_sheet=probs.p_clean_sheet_home if home else probs.p_clean_sheet_away,
+        team_goals=team_goals,
+        clean_sheet=clean_sheet,
         odds_source=ODDS_SOURCE,
     )
 

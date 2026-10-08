@@ -199,7 +199,7 @@ def _bucket(calls: list[ScoredCall]) -> dict:
         h = sum(1 for c in group if c.hit)
         by_conf[tier] = {"scored": len(group), "hits": h, "hitRate": _rate(h, len(group))}
     by_scoring = {}
-    for mode in ("exact", "interval"):
+    for mode in ("exact", "interval", "7d"):
         group = [c for c in scored if c.scoring == mode]
         h = sum(1 for c in group if c.hit)
         by_scoring[mode] = {"scored": len(group), "hits": h, "hitRate": _rate(h, len(group))}

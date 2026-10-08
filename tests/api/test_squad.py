@@ -67,6 +67,16 @@ def test_add_returns_201(client, session):
     assert body["summary"]["memberPlayerIds"] == [1]
 
 
+def test_squad_members_carry_a_verdict_label_from_the_vocabulary(client, session):
+    from core.verdict import LABELS
+
+    seed_player(session, 1, "Keeper", "POR", 5_000_000)
+    client.post("/api/squad/players", json={"playerId": 1, "purchasePrice": 4_500_000})
+    member = client.get("/api/squad").json()["members"][0]
+    assert member["verdict"]["label"] in LABELS
+    assert isinstance(member["verdict"]["tags"], list)
+
+
 def test_add_uses_the_submitted_purchase_price_not_market_value(client, session):
     seed_player(session, 1, "Keeper", "POR", 5_000_000)
     client.post("/api/squad/players", json={"playerId": 1, "purchasePrice": 7_000_000})
@@ -235,6 +245,19 @@ def test_every_member_carries_an_availability(client, session):
     seed_squad(client, session, shape=("POR",))
     member = client.get("/api/squad").json()["members"][0]
     assert member["availability"] == "available"
+
+
+def test_every_member_carries_the_live_inputs_fields(client, session):
+    """Task 7: the squad cards get the same compact inputs fields as the
+    browser table — comparing same-position members' reliability and Power
+    rank is the "who should I start" answer."""
+    seed_squad(client, session, shape=("POR",))
+    member = client.get("/api/squad").json()["members"][0]
+    for key in (
+        "powerRank", "reliabilityClass", "pStart", "pointsValuePct",
+        "outlookPct", "outlookDirection", "dropRisk", "xptsWindow",
+    ):
+        assert key in member, key
 
 
 def test_saving_an_xi_persists_the_roles_and_the_formation(client, session):

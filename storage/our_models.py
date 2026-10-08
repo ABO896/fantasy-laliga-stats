@@ -11,6 +11,7 @@ import bisect
 import json
 import statistics
 from collections import defaultdict
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 
@@ -18,15 +19,18 @@ from sqlmodel import Session, delete, func, select
 
 from core import analytics as an
 from core import market_model as mm
+from core import market_v2 as m2
+from core.analytics import team_played_weeks  # lives in core; storage callers import it here
 from core.config import get_settings
-from core.xp_backtest import MIN_TEAM_ROWS
+from core.ranks import Rank, position_ranks
 from storage.db import as_utc
-from storage.expected_points import last_season_means
+from storage.expected_points import last_season_means, latest_expected_points, stored_predictions
 from storage.models import (
     Fixture,
     MarketPrediction,
     Player,
     PlayerGameweekPoints,
+    PlayerMarketDaily,
     PlayerSnapshot,
     SourcePrediction,
 )
@@ -76,21 +80,34 @@ def load_snapshot_points(
     return out
 
 
-def team_played_weeks(
-    rows: list[an.GameweekRow], team_of: dict[int, str]
-) -> dict[str, set[tuple[int, int]]]:
-    """Per club, the weeks it played: at least `MIN_TEAM_ROWS` of its (current)
-    players have a row. The same test MODEL-02's history already uses."""
-    counts: dict[tuple[str, int, int], int] = defaultdict(int)
-    for r in rows:
-        team = team_of.get(r.player_id)
-        if team is not None:
-            counts[(team, r.season_year, r.week)] += 1
-    out: dict[str, set[tuple[int, int]]] = defaultdict(set)
-    for (team, season, week), n in counts.items():
-        if n >= MIN_TEAM_ROWS:
-            out[team].add((season, week))
-    return dict(out)
+def _momentum7_values(
+    session: Session, season: int, player_ids: Iterable[int]
+) -> dict[int, float | None]:
+    """7-day price momentum per player, for position-ranking only
+    (Plan D Task 1): the daily series' change (`PlayerMarketDaily`, Plan A)
+    where it exists, else the snapshot series' change for players the
+    daily table hasn't captured yet (`core.analytics.value_momentum`)."""
+    daily = session.exec(
+        select(PlayerMarketDaily.player_id, PlayerMarketDaily.day,
+               PlayerMarketDaily.market_value)
+        .where(PlayerMarketDaily.season_year == season)
+    ).all()
+    by_player: dict[int, dict[date, int]] = defaultdict(dict)
+    for pid, day, value in daily:
+        by_player[pid][day] = value
+
+    out: dict[int, float | None] = {}
+    for pid in player_ids:
+        values = by_player.get(pid)
+        out[pid] = m2.price_change_pct(values, max(values), 7) if values else None
+
+    missing = [pid for pid, pct in out.items() if pct is None]
+    if missing:
+        snaps = load_snapshot_points(session, missing)
+        for pid in missing:
+            history = [(s.as_of, s.market_value) for s in snaps.get(pid, [])]
+            out[pid] = an.value_momentum(history, [7])[0].pct
+    return out
 
 
 def calendar_final_weeks(session: Session, season: int, now: datetime) -> set[tuple[int, int]]:
@@ -208,10 +225,101 @@ def _round(x: float | None, n: int = 2) -> float | None:
     return round(x, n) if x is not None else None
 
 
+#: `player_analytics_payload`'s Plan B Task 7 blocks when the player has no
+#: live inputs (no snapshot and no price at all) — the same null shape
+#: `api.routes.analytics._EMPTY` serves when the player has nothing else
+#: either.
+_EMPTY_INPUTS = {
+    "powerRank": None,
+    "reliability": None,
+    "evidence": None,
+    "pointsValue": None,
+    "priceOutlook": None,
+    "expectedReturnEur": None,
+    "inputsConfidence": None,
+    "dataThrough": None,
+}
+
+
+def _rank_entry(r: Rank | None, position: str | None) -> dict | None:
+    return (
+        {"rank": r.rank, "of": r.of, "percentile": round(r.percentile, 1), "position": position}
+        if r and position else None
+    )
+
+
+def _ranks_block(session: Session, all_analytics: dict, player_id: int, live_inputs) -> dict:
+    """Plan D Task 1: a within-position rank for every metric card.
+
+    `power`/`pointsValue`/`outlook`/`reliability` are read straight off
+    `compute_live_inputs`' own `PlayerInputs.ranks` (Plan B) — they are
+    already computed once for every player there. `form`/`consistency`
+    rank among players with a value from `compute_player_analytics`; `xp`
+    ranks the latest stored jornada's expected points
+    (`storage.expected_points.latest_expected_points`), leaving `no_fixture`
+    blanks unranked; `momentum7` ranks the 7-day price move."""
+    season = get_settings().current_season_year
+    positions = dict(session.exec(select(Player.id, Player.position)).all())
+    player_position = positions.get(player_id)
+
+    form_values = {pid: pa.form.value for pid, pa in all_analytics.items()}
+    consistency_values = {pid: pa.consistency.value for pid, pa in all_analytics.items()}
+    xp_latest = latest_expected_points(session, season)
+    xp_values = {pid: v for pid, (v, basis) in xp_latest.items() if basis != "no_fixture"}
+    momentum7_values = _momentum7_values(session, season, positions)
+
+    form_ranks = position_ranks(form_values, positions)
+    consistency_ranks = position_ranks(consistency_values, positions)
+    xp_ranks = position_ranks(xp_values, positions)
+    momentum7_ranks = position_ranks(momentum7_values, positions)
+
+    def _r(r: Rank | None) -> dict | None:
+        return _rank_entry(r, player_position)
+
+    live_ranks = live_inputs.ranks if live_inputs else {}
+    return {
+        "power": _r(live_ranks.get("power")),
+        "pointsValue": _r(live_ranks.get("pointsValue")),
+        "outlook": _r(live_ranks.get("outlook")),
+        "reliability": _r(live_ranks.get("start")),
+        "xp": _r(xp_ranks.get(player_id)),
+        "form": _r(form_ranks.get(player_id)),
+        "consistency": _r(consistency_ranks.get(player_id)),
+        "momentum7": _r(momentum7_ranks.get(player_id)),
+    }
+
+
+def _xp_card(session: Session, player_id: int) -> dict | None:
+    """Plan D Task 1's xP card: the latest stored jornada's prediction for
+    this one player — one request (`storage.expected_points.
+    stored_predictions`), its terms/coefficients/rate read straight off the
+    stored `inputs` JSON (`core.expected_points.expected_points`)."""
+    _, _, rows = stored_predictions(session, player_id=player_id)
+    if not rows:
+        return None
+    row, _player = rows[0]
+    row_inputs = json.loads(row.inputs)
+    return {
+        "value": round(row.predicted, 2),
+        "basis": row.basis,
+        "jornada": row.jornada,
+        "opponent": row.opponent,
+        "isHome": row.is_home,
+        "terms": row_inputs.get("terms"),
+        "coefficients": row_inputs.get("coefficients"),
+        "rate": row_inputs.get("rate"),
+    }
+
+
 def player_analytics_payload(
     session: Session, player_id: int, windows: list[int]
 ) -> dict | None:
     """ANALYTICS-05: every metric with its inputs and its window."""
+    # Imported here, not at module level: `storage.inputs` itself imports
+    # `calendar_final_weeks`/`load_gameweek_rows` from this module, so a
+    # top-level import the other way would be a cycle.
+    from storage.inputs import compute_live_inputs, inputs_payload
+
     all_analytics = compute_player_analytics(session)
     a = all_analytics.get(player_id)
     history = [
@@ -226,6 +334,15 @@ def player_analytics_payload(
         .where(MarketPrediction.model_version == mm.MODEL_VERSION)
         .order_by(MarketPrediction.made_on.desc())
     ).first()
+
+    # Plan B Task 7: reliability, points value, outlook and Power's position
+    # rank — computed once for every player, same as the browser table.
+    all_live_inputs = compute_live_inputs(session)
+    live_inputs = all_live_inputs.get(player_id)
+    inputs = inputs_payload(live_inputs) if live_inputs is not None else _EMPTY_INPUTS
+
+    ranks = _ranks_block(session, all_analytics, player_id, live_inputs)
+    xp_block = _xp_card(session, player_id)
 
     recent = a.series[-an.RECENT_WINDOW:] if a else []
     fit = a.valuation.fit if a and a.valuation else None
@@ -296,6 +413,9 @@ def player_analytics_payload(
                      "(starter > 30%, ≥ 3 matches this season, available)",
         },
         "marketPrediction": prediction and _prediction_payload(prediction),
+        "ranks": ranks,
+        "xp": xp_block,
+        **inputs,
     }
 
 
@@ -491,9 +611,18 @@ def _source_market_rows(session: Session):
     ]
 
 
-def track_record_payload(session: Session) -> dict:
+def track_record_payload(session: Session, model_version: str = mm.MODEL_VERSION) -> dict:
+    if model_version == "market-v2":
+        from storage.market_v2 import v2_track_record
+
+        return v2_track_record(session)
+    if model_version != mm.MODEL_VERSION:
+        raise ValueError(
+            f"unknown model_version {model_version!r}; expected "
+            f"{mm.MODEL_VERSION!r} or 'market-v2'"
+        )
     preds = session.exec(
-        select(MarketPrediction).where(MarketPrediction.model_version == mm.MODEL_VERSION)
+        select(MarketPrediction).where(MarketPrediction.model_version == model_version)
     ).all()
     ours = mm.summarize(
         mm.ScoredCall(p.confidence, p.scoring, p.hit, p.retroactive, p.outcome_gap_days)

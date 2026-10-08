@@ -10,6 +10,7 @@ import {
 } from "@tanstack/react-table";
 import { Link } from "react-router-dom";
 import type { PlayerRow } from "../../api-client/players";
+import { VERDICT_LABELS } from "../../api-client/verdict";
 import {
   formatEuroAbbreviated,
   formatNullable,
@@ -19,6 +20,7 @@ import {
 import { nullsLastComparator, withIdTieBreak } from "../../lib/sorting";
 import { StarButton } from "../WatchlistToggle";
 import PosBadge from "../ui/PosBadge";
+import VerdictChip from "../verdict/VerdictChip";
 
 /**
  * The actual row order applied to the table is computed by `PlayerTable.tsx`
@@ -52,6 +54,16 @@ const AVAILABILITY_BADGE_CLASS: Record<string, string> = {
   suspended: "bg-[color:var(--color-neutral)]/10 muted",
 };
 
+/** `LABELS`' priority order — never alphabetical — so sorting the verdict
+ * column (ascending or descending) orders by the same priority the rule
+ * engine itself applies. `null` (no live verdict) sorts after every known
+ * label, through `nullsLastComparator`. */
+function verdictRank(label: string | null): number | null {
+  if (label === null) return null;
+  const idx = VERDICT_LABELS.indexOf(label as (typeof VERDICT_LABELS)[number]);
+  return idx === -1 ? null : idx;
+}
+
 function multiSelectFilter(row: PlayerRowLike, columnId: string, filterValue: string[]): boolean {
   if (!filterValue || filterValue.length === 0) return true;
   return filterValue.includes(String(row.getValue(columnId)));
@@ -78,29 +90,135 @@ function truncatedCell(value: string, maxWidthClass: string) {
   );
 }
 
-/** ANALYTICS-06/07. Sortable through the same nulls-last pre-sort as every
- * other numeric column; a null reads "—" (not enough data), never 0. */
-function scoreColumn(
-  id: "powerScore" | "economyScore",
-  header: string,
-  title: string,
-): PlayerColumnDef {
-  return {
-    id,
-    accessorFn: (row: PlayerRow) => row[id] ?? null,
-    header,
-    sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
-      withIdTieBreak<PlayerRow>((a, b) => nullsLastComparator(a[id] ?? null, b[id] ?? null, false))(
-        rowA.original,
-        rowB.original,
-      ),
-    cell: ({ row }) => (
+/** ANALYTICS-06 + Task 7. Power's score sortable through the same
+ * nulls-last pre-sort as every other numeric column (a null score reads
+ * "—", never 0) — and, beside it in muted text, his rank within his own
+ * position: "71 · #2". `economyScore` lost this column on Task 7 (it stays
+ * in the payload for the transfers page only; see `pointsValuePctColumn`
+ * for the table's replacement "who's worth it" number). */
+const powerScoreColumn: PlayerColumnDef = {
+  id: "powerScore",
+  accessorFn: (row: PlayerRow) => row.powerScore ?? null,
+  header: "Power",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.powerScore ?? null, b.powerScore ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const rank = row.original.powerRank ?? null;
+    const title = rank
+      ? `#${rank.rank} of ${rank.of} ${row.original.position} by Power`
+      : "Power Score (0–100): expected points per match — this season's rate shrunk toward " +
+        "last season, calibrated per position, × availability";
+    return (
       <span className="tabular block text-right" title={title}>
-        {formatNullable(row.original[id] ?? null, (v) => Math.round(v).toString())}
+        {formatNullable(row.original.powerScore ?? null, (v) => Math.round(v).toString())}
+        {rank && <span className="muted"> · #{rank.rank}</span>}
       </span>
-    ),
-  };
-}
+    );
+  },
+};
+
+/** Task 7. Percentile (0–100, within position) of points value per € —
+ * "who's worth it", the table's replacement for the retired Economy
+ * column. */
+const pointsValuePctColumn: PlayerColumnDef = {
+  id: "pointsValuePct",
+  accessorFn: (row: PlayerRow) => row.pointsValuePct ?? null,
+  header: "Value",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.pointsValuePct ?? null, b.pointsValuePct ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => (
+    <span
+      className="tabular block text-right"
+      title="Points above a cheap regular starter, per € — percentile within position"
+    >
+      {formatNullable(row.original.pointsValuePct ?? null, (v) => Math.round(v).toString())}
+    </span>
+  ),
+};
+
+/** Task 7. The reliability class (Nailed/Regular/Rotation/Fringe) — sorted
+ * by its underlying `pStart`, not alphabetically, so "Plays" orders the
+ * same way the class itself was derived. */
+const reliabilityClassColumn: PlayerColumnDef = {
+  id: "reliabilityClass",
+  accessorFn: (row: PlayerRow) => row.reliabilityClass ?? null,
+  header: "Plays",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.pStart ?? null, b.pStart ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const pStart = row.original.pStart ?? null;
+    const title =
+      pStart === null
+        ? "Reliability class — not enough evidence yet"
+        : `Starts ${Math.round(pStart * 100)}% of matches next — reliability class`;
+    return (
+      <span className="block text-right" title={title}>
+        {row.original.reliabilityClass ?? "—"}
+      </span>
+    );
+  },
+};
+
+/** Task 7. Market-v2's 7-day expected price move, signed — in red only when
+ * the model calls a fall. Drop risk (the interval's lower bound is negative)
+ * applies to almost everyone, so on any other call it is a "▾" marker and a
+ * tooltip, never the colour of a predicted rise. */
+const outlookPctColumn: PlayerColumnDef = {
+  id: "outlookPct",
+  accessorFn: (row: PlayerRow) => row.outlookPct ?? null,
+  header: "7d outlook",
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(a.outlookPct ?? null, b.outlookPct ?? null, false),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const falling = row.original.outlookDirection === "fall";
+    const riskMarker = row.original.dropRisk === true && !falling;
+    return (
+      <span
+        className={`tabular block text-right ${
+          falling ? "text-[color:var(--color-destructive)]" : ""
+        }`}
+        title={
+          riskMarker
+            ? "Expected 7-day price move (market-v2) — drop risk: the range reaches below zero"
+            : "Expected 7-day price move (market-v2)"
+        }
+      >
+        {formatPercent(row.original.outlookPct ?? null)}
+        {riskMarker && <span aria-hidden="true"> ▾</span>}
+      </span>
+    );
+  },
+};
+
+/** Plan C Task 6 — the verdict label every surface agrees on. Sorted by
+ * `LABELS` priority order (see `verdictRank`), never alphabetically, and
+ * filterable the same way position/team/availability already are. */
+const verdictColumn: PlayerColumnDef = {
+  id: "verdict",
+  accessorFn: (row: PlayerRow) => row.verdict?.label ?? null,
+  header: "Verdict",
+  filterFn: multiSelectFilter,
+  sortFn: (rowA: PlayerRowLike, rowB: PlayerRowLike) =>
+    withIdTieBreak<PlayerRow>((a, b) =>
+      nullsLastComparator(
+        verdictRank(a.verdict?.label ?? null),
+        verdictRank(b.verdict?.label ?? null),
+        false,
+      ),
+    )(rowA.original, rowB.original),
+  cell: ({ row }) => {
+    const label = row.original.verdict?.label ?? null;
+    return <span className="block text-right">{label ? <VerdictChip label={label} /> : "—"}</span>;
+  },
+};
 
 /** MODEL-02. One decimal, because xP is an expected value in points, not a
  * 0–100 score; the basis rides along in the tooltip. */
@@ -282,18 +400,12 @@ const baseColumns: PlayerColumnDef[] = [
       </span>
     ),
   },
-  scoreColumn(
-    "powerScore",
-    "Power",
-    "Power Score (0–100): expected points per match — this season's rate shrunk toward " +
-      "last season, calibrated per position, × availability",
-  ),
-  scoreColumn(
-    "economyScore",
-    "Economy",
-    "Economy Score (0–100): how far below what his Power usually costs the player is priced",
-  ),
+  powerScoreColumn,
+  pointsValuePctColumn,
+  reliabilityClassColumn,
+  verdictColumn,
   expectedPointsColumn,
+  outlookPctColumn,
   {
     id: "starterProbability",
     accessorKey: "starterProbability",

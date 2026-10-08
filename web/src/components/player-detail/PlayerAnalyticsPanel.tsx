@@ -1,127 +1,292 @@
-import { useState, type ReactNode } from "react";
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { DEFAULT_WINDOWS, fetchPlayerAnalytics, type PlayerAnalytics } from "../../api-client/analytics";
-import type { MarketPrediction } from "../../api-client/market-model";
-import { formatEuroAbbreviated, formatPercent, formatShortDate } from "../../lib/format";
+import MetricCard from "../metrics/MetricCard";
+import { usePlayerVerdict } from "../verdict/usePlayerVerdict";
+import {
+  buildConsistencySteps,
+  buildFormSteps,
+  buildMomentumSteps,
+  buildOutlookSteps,
+  buildPointsValueSteps,
+  buildPowerSteps,
+  buildReliabilitySteps,
+  buildVerdictSteps,
+  buildXpSteps,
+} from "../metrics/steps";
 
 /** Momentum windows the owner can toggle (ANALYTICS-02's "configurable"). */
 const WINDOW_PRESETS = [1, 3, 7, 14, 30, 60];
 
-function num(value: number | null | undefined, digits = 1): string {
-  return value === null || value === undefined ? "—" : value.toFixed(digits);
-}
-
-function signed(value: number | null | undefined, digits = 2): string {
-  if (value === null || value === undefined) return "—";
-  return `${value > 0 ? "+" : ""}${value.toFixed(digits)}`;
-}
-
-function Card({ title, value, children }: { title: string; value: ReactNode; children: ReactNode }) {
+function MomentumToggle({
+  windows,
+  onToggle,
+}: {
+  windows: number[];
+  onToggle: (w: number) => void;
+}) {
   return (
-    <div className="panel p-md">
-      <div className="flex items-baseline justify-between gap-sm">
-        <h3 className="subsection-title">{title}</h3>
-        <span className="font-[family-name:var(--font-display)] text-[26px] font-bold leading-none tabular-nums">{value}</span>
+    <div className="flex flex-wrap items-center justify-between gap-sm pt-sm">
+      <span className="text-xs muted">Windows</span>
+      <div className="segmented" role="group" aria-label="Momentum windows">
+        {WINDOW_PRESETS.map((w) => (
+          <button
+            key={w}
+            type="button"
+            aria-pressed={windows.includes(w)}
+            onClick={() => onToggle(w)}
+            className="tabular"
+          >
+            {w}d
+          </button>
+        ))}
       </div>
-      <div className="pt-xs text-xs muted">{children}</div>
     </div>
   );
 }
 
-function PointsList({ points }: { points: number[] }) {
-  return <span className="tabular">[{points.join(", ")}]</span>;
-}
+function Panel({
+  data,
+  windows,
+  onToggleWindow,
+}: {
+  data: PlayerAnalytics;
+  windows: number[];
+  onToggleWindow: (w: number) => void;
+}) {
+  const { form, consistency, power, momentum, reliability, pointsValue, priceOutlook, xp, valuation, ranks } = data;
 
-function PredictionSummary({ prediction }: { prediction: MarketPrediction }) {
-  const i = prediction.inputs;
-  const terms: string[] = [`last move ${formatPercent(i.lastMovePct)}`];
-  if (i.accelerationTerm !== null) terms.push(`acceleration ${signed(i.accelerationTerm)}`);
-  if (i.starterTerm) terms.push(`starter change ${signed(i.starterTerm)}`);
-  if (i.availabilityTerm !== null)
-    terms.push(`${i.availabilityChange} ${signed(i.availabilityTerm)}`);
-  if (i.freshPointsTerm !== null) terms.push(`${i.freshPoints} fresh points ${signed(i.freshPointsTerm)}`);
-  if (i.baseRateFallback) terms.push("no signal — base rate (most players fall)");
-  return (
-    <>
-      <p>
-        Next update: <strong className="capitalize">{prediction.direction}</strong>{" "}
-        ({signed(prediction.predictedPct)}%), <strong>{prediction.confidence}</strong> confidence
-        · made from the {formatShortDate(prediction.madeOn)} snapshot
-        {prediction.retroactive ? " (retroactive)" : ""}
-      </p>
-      <p>Inputs: {terms.join("; ")}.</p>
-      {prediction.outcome && (
-        <p>
-          Outcome ({prediction.outcome.scoring}, {prediction.outcome.gapDays}-day gap):{" "}
-          {formatPercent(prediction.outcome.actualPct)} —{" "}
-          <strong>{prediction.outcome.hit ? "hit" : "miss"}</strong>
-        </p>
-      )}
-    </>
-  );
-}
+  const verdictQuery = usePlayerVerdict(data.playerId);
 
-function Panel({ data }: { data: PlayerAnalytics }) {
-  const { form, consistency, power, valuation, economy } = data;
   return (
     <div className="grid gap-md sm:grid-cols-2">
-      <Card title="Power Score" value={num(power?.score, 0)}>
-        {power ? (
-          <>
-            <p>
-              {power.calibration.a} × rate {num(power.rate, 2)} {signed(power.calibration.c, 3)} ={" "}
-              {num(power.qualityPpg, 2)} pts/match; × {power.availabilityFactor} (
-              {power.availability ?? "available"}) = {num(power.powerPpg, 2)}; {power.referencePpg} = 100.
-            </p>
-            <p>
-              Rate: this season&apos;s {power.rateMatches} team matches, recency-weighted and shrunk
-              toward {num(power.prior, 2)} ({power.priorSource === "last_season" ? "last season" : "position average"}).
-            </p>
-          </>
-        ) : (
-          <p>No jornada recorded yet.</p>
-        )}
-      </Card>
-      <Card title="Economy Score" value={num(economy?.score ?? null, 0)}>
-        {valuation?.gapPct !== null && valuation?.gapPct !== undefined && valuation.fit ? (
-          <>
-            <p>
-              Priced {formatEuroAbbreviated(valuation.marketValue ?? 0)} against a fair value of{" "}
-              {formatEuroAbbreviated(valuation.fairValue ?? 0)} for his points per match at his position (
-              {signed(valuation.gapPct, 1)}%).
-            </p>
-            <p>
-              Fair value = e^{valuation.fit.intercept} × (pts/match)^{valuation.fit.slope} (log-log), fitted on{" "}
-              {valuation.fit.n} {valuation.fit.pooled ? "players (all positions pooled)" : "players at his position"}
-              , R² {num(valuation.fit.rSquared, 2)}. Score = {economy?.basis}.
-            </p>
-          </>
-        ) : (
-          <p>No valuation: {valuation?.reason ?? "not enough data"}.</p>
-        )}
-      </Card>
-      <Card title="Form" value={signed(form?.value)}>
-        {form ? (
-          <p>
-            Last {form.formJornadas} jornadas avg {num(form.formAvg, 2)} <PointsList points={form.recentPoints} />{" "}
-            vs the {form.baselineJornadas} before them (up to {form.baselineWindow}) avg{" "}
-            {num(form.baselineAvg, 2)}. Missed jornadas count as 0.
-          </p>
-        ) : (
-          <p>No jornada recorded yet.</p>
-        )}
-      </Card>
-      <Card title="Consistency" value={num(consistency?.value ?? null, 0)}>
-        {consistency && consistency.jornadas > 0 ? (
-          <p>
-            100 × mean / (mean + SD) over the last {consistency.jornadas} of {consistency.window}{" "}
-            jornadas: mean {num(consistency.mean, 2)}, SD {num(consistency.sd, 2)}{" "}
-            <PointsList points={consistency.points} />.
-          </p>
-        ) : (
-          <p>No jornada recorded yet.</p>
-        )}
-      </Card>
+      {verdictQuery.data ? (
+        (() => {
+          const { steps, headline } = buildVerdictSteps(
+            verdictQuery.data.label,
+            verdictQuery.data.deciding,
+            verdictQuery.data.reason,
+          );
+          return (
+            <MetricCard
+              metric="verdict"
+              value={verdictQuery.data.label}
+              word={verdictQuery.data.label}
+              rank={null}
+              steps={steps}
+              headline={headline}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="verdict"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason={verdictQuery.isError ? "Couldn't load the verdict." : "Loading…"}
+        />
+      )}
+
+      {power ? (
+        (() => {
+          const { steps, headline, formula } = buildPowerSteps(power);
+          return (
+            <MetricCard
+              metric="power"
+              value={Math.round(power.score).toString()}
+              rank={ranks?.power ?? null}
+              steps={steps}
+              headline={headline}
+              formula={formula}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="power"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No jornada recorded yet."
+        />
+      )}
+
+      {pointsValue && pointsValue.value !== null ? (
+        (() => {
+          const { steps, headline, formula } = buildPointsValueSteps(
+            pointsValue,
+            valuation?.fairValue ?? null,
+          );
+          return (
+            <MetricCard
+              metric="pointsValue"
+              value={headline.value as string}
+              rank={ranks?.pointsValue ?? null}
+              steps={steps}
+              headline={headline}
+              formula={formula}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="pointsValue"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason={pointsValue?.reason ?? "Not enough data."}
+        />
+      )}
+
+      {priceOutlook ? (
+        (() => {
+          const { steps, headline } = buildOutlookSteps(priceOutlook);
+          const direction =
+            priceOutlook.direction === "rise"
+              ? "Rising"
+              : priceOutlook.direction === "fall"
+                ? "Falling"
+                : "Flat";
+          return (
+            <MetricCard
+              metric="outlook"
+              value={headline.value as string}
+              word={direction}
+              rank={ranks?.outlook ?? null}
+              steps={steps}
+              headline={headline}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="outlook"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No price outlook yet."
+        />
+      )}
+
+      {reliability ? (
+        (() => {
+          const { steps, headline } = buildReliabilitySteps(reliability);
+          return (
+            <MetricCard
+              metric="reliability"
+              value={headline.value as string}
+              word={reliability.class}
+              rank={ranks?.reliability ?? null}
+              steps={steps}
+              headline={headline}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="reliability"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No live inputs for this player yet."
+        />
+      )}
+
+      {xp ? (
+        (() => {
+          const { steps, headline } = buildXpSteps(xp);
+          return (
+            <MetricCard
+              metric="xp"
+              value={headline.value as string}
+              rank={ranks?.xp ?? null}
+              steps={steps}
+              headline={headline}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="xp"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No prediction stored yet — it is made on the next refresh."
+        />
+      )}
+
+      {form && form.value !== null ? (
+        (() => {
+          const { steps, headline } = buildFormSteps(form);
+          return (
+            <MetricCard
+              metric="form"
+              value={headline.value as string}
+              rank={ranks?.form ?? null}
+              steps={steps}
+              headline={headline}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="form"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No jornada recorded yet."
+        />
+      )}
+
+      {consistency && consistency.value !== null && consistency.jornadas > 0 ? (
+        (() => {
+          const { steps, headline, formula } = buildConsistencySteps(consistency);
+          return (
+            <MetricCard
+              metric="consistency"
+              value={headline.value as string}
+              rank={ranks?.consistency ?? null}
+              steps={steps}
+              headline={headline}
+              formula={formula}
+            />
+          );
+        })()
+      ) : (
+        <MetricCard
+          metric="consistency"
+          value={null}
+          rank={null}
+          steps={null}
+          headline={null}
+          emptyReason="No jornada recorded yet."
+        />
+      )}
+
+      {(() => {
+        const { steps, headline } = buildMomentumSteps(momentum);
+        const sevenDay = momentum.find((m) => m.windowDays === 7) ?? null;
+        return (
+          <MetricCard
+            metric="momentum"
+            value={sevenDay ? headline.value as string : null}
+            rank={ranks?.momentum7 ?? null}
+            steps={sevenDay ? steps : null}
+            headline={sevenDay ? headline : null}
+            emptyReason="Enable the 7-day window below to see this."
+          >
+            <MomentumToggle windows={windows} onToggle={onToggleWindow} />
+          </MetricCard>
+        );
+      })()}
     </div>
   );
 }
@@ -147,69 +312,7 @@ export default function PlayerAnalyticsPanel({ playerId }: { playerId: number })
       </h2>
       {isLoading && <p className="state-note">Loading analytics…</p>}
       {isError && <p className="state-error">Couldn't load analytics.</p>}
-      {data && (
-        <>
-          <Panel data={data} />
-          <div className="panel p-md">
-            <div className="flex flex-wrap items-center justify-between gap-sm">
-              <h3 className="subsection-title">Value momentum</h3>
-              <div className="segmented" role="group" aria-label="Momentum windows">
-                {WINDOW_PRESETS.map((w) => (
-                  <button
-                    key={w}
-                    type="button"
-                    aria-pressed={windows.includes(w)}
-                    onClick={() => toggle(w)}
-                    className="tabular"
-                  >
-                    {w}d
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="mt-sm overflow-x-auto">
-            <table className="data-table compact">
-              <thead>
-                <tr>
-                  <th>Window</th>
-                  <th>From → to (actual days)</th>
-                  <th className="num">Change</th>
-                  <th className="num">Per day</th>
-                  <th>Direction</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.momentum.map((m) => (
-                  <tr key={m.windowDays}>
-                    <td>{m.windowDays}d</td>
-                    <td>
-                      {m.fromDate && m.toDate
-                        ? `${formatShortDate(m.fromDate)} → ${formatShortDate(m.toDate)} (${m.days})`
-                        : "no snapshot that far back"}
-                    </td>
-                    <td className="num">{formatPercent(m.pct)}</td>
-                    <td className="num">{formatPercent(m.ratePerDay)}</td>
-                    <td>{m.direction ?? "—"}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-            </div>
-            <p className="pt-xs text-xs muted">
-              From the latest snapshot at or before the window start; snapshots are irregular, so the
-              per-day rate divides by the actual span.
-            </p>
-          </div>
-          <div className="panel p-md text-xs">
-            <h3 className="subsection-title pb-xs">Our market prediction</h3>
-            {data.marketPrediction ? (
-              <PredictionSummary prediction={data.marketPrediction} />
-            ) : (
-              <p className="muted">No prediction yet — run a refresh.</p>
-            )}
-          </div>
-        </>
-      )}
+      {data && <Panel data={data} windows={windows} onToggleWindow={toggle} />}
     </section>
   );
 }
