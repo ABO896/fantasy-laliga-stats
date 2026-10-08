@@ -164,10 +164,6 @@ Player pages supply per-match minutes and daily prices, which the playing-time c
 verdict depend on. Until a player's page has been fetched, their verdict is *Unproven* or carries
 low confidence; run a Complete refresh to fill them in.
 
-An earlier version refreshed daily from `launchd`. It failed silently for eleven days and lost
-history that could not be recovered, so refreshes now run only while the app is in use. The
-trade-off is gaps in history on days it is not opened.
-
 ### Updating
 
 ```bash
