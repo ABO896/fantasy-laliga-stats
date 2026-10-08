@@ -554,6 +554,11 @@ def run_daily_refresh(run_id: int | None = None, mode: str = "quick"):
             except ScrapeError as exc:
                 session.rollback()
                 errors = [f"{type(exc).__name__}: {exc}"]
+                if exc.html:
+                    # Kept for diagnosis: a block that clears seconds later
+                    # can't otherwise be told from a false marker match.
+                    name = "blocked" if isinstance(exc, ScrapeBlocked) else "failed"
+                    (raw_dir / f"{name}_market.html").write_text(exc.html, encoding="utf-8")
                 outcome = {"status": "failed", "row_count": 0, "errors": errors}
                 finish_dataset_run(session, market_dataset_run, "failed", errors=errors)
             except Exception as exc:

@@ -20,6 +20,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from core.config import Settings, get_settings
 from scraper.errors import (
     ScrapeBlocked,
+    blocked_message,
     ScrapeNetworkError,
     ScrapeNotPublished,
     ScrapeStructureChanged,
@@ -51,7 +52,9 @@ def _get(url: str, structure_markers: tuple[str, ...], settings: Settings) -> st
     html = response.text
     error_type = classify_response(response.status_code, html, structure_markers)
     if error_type is ScrapeBlocked:
-        raise ScrapeBlocked(f"Blocked by target site: HTTP {response.status_code} for {url}")
+        raise ScrapeBlocked(
+            blocked_message(f"HTTP {response.status_code} for {url}", html), html=html
+        )
     if error_type is ScrapeNotPublished:
         raise ScrapeNotPublished(f"Not published by the source: HTTP 404 for {url}")
     if error_type is ScrapeStructureChanged:
