@@ -687,7 +687,8 @@ def suggest_moves(
     jornadas: int,
     limit: int = 10,
 ) -> list[Move]:
-    """Ranked sell → buy suggestions, plus adds while the squad has free slots.
+    """Ranked sell → buy suggestions, plus adds while the squad cannot yet
+    field a full XI (an add must start).
 
     A move's gain is what it does to the **best XI** the squad can field
     (expected points per jornada × jornadas — only starters score), plus the
@@ -714,8 +715,15 @@ def suggest_moves(
     while len(moves) < limit:
         rows = [(m.player_id, m.position, er(m.player_id)) for m in squad]
         base, _ = best_xi(rows, rules)
-        # An add first: on a tie it beats a swap, because it sells nobody.
-        sells: list[Assessment | None] = [None] if len(squad) < rules.max_squad_size else []
+        # An add only while the squad cannot field a full XI, and only for a
+        # player who fills a missing position and starts: once the XI is complete a better player
+        # comes in *for* someone, never beside him on the bench (owner,
+        # 2026-10-08). First in the list, so on a tie it beats a swap.
+        before = evaluate_squad(squad, rules)
+        missing = {pos for pos, n in before.missing_for_xi.items() if n > 0}
+        sells: list[Assessment | None] = (
+            [None] if not before.can_field_xi and len(squad) < rules.max_squad_size else []
+        )
         sells += [
             assessments[m.player_id] for m in squad
             if m.player_id in assessments and m.player_id not in touched
@@ -728,6 +736,9 @@ def suggest_moves(
                     continue
                 total, starters = best_xi([*kept, (buy.player_id, buy.position,
                                                    buy.expected_return)], rules)
+                if sell is None and (buy.position not in missing
+                                     or buy.player_id not in starters):
+                    continue
                 xi_delta = total - base
                 gain = xi_delta * jornadas + buy.value_term - (sell.value_term if sell else 0.0)
                 if gain <= MIN_GAIN or (best is not None and gain <= best[0]):

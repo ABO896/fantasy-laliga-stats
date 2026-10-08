@@ -335,14 +335,36 @@ def test_each_player_appears_in_at_most_one_move():
     assert len(buys) == len(set(buys))
 
 
-def test_a_free_slot_yields_an_add_move():
-    squad = _full_squad()[:-1]
+def _xi(drop=None):
+    """Eleven players in a 4-4-2 — a fieldable XI, far under the cap."""
+    positions = ["POR"] + ["DEF"] * 4 + ["MED"] * 4 + ["DEL"] * 2
+    if drop:
+        positions.remove(drop)
+    return [_member(i + 1, pos) for i, pos in enumerate(positions)]
+
+
+def test_a_complete_xi_gets_swaps_not_bench_adds():
+    """Owner, 2026-10-08: 'why should I sign bench players'. With a full XI
+    and free slots, the better player comes in for someone, not beside him."""
+    squad = _xi()
     owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
-    target = _p(100, "DEL", mv=2_000_000, ppg=6.0)
-    moves = suggest_moves(squad, _assess([*owned, target]), RULES, ceiling=None,
+    star = _p(100, "DEL", mv=2_000_000, ppg=9.0)
+    moves = suggest_moves(squad, _assess([*owned, star]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3)
+    assert moves
+    assert all(m.kind == "swap" for m in moves)
+    assert moves[0].buy.player_id == 100
+
+
+def test_a_missing_xi_slot_yields_an_add_that_fills_it():
+    squad = _xi(drop="POR")
+    owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
+    keeper = _p(100, "POR", mv=2_000_000, ppg=4.0)
+    star = _p(101, "DEL", mv=2_000_000, ppg=9.0)
+    moves = suggest_moves(squad, _assess([*owned, keeper, star]), RULES, ceiling=None,
                           freshness=_fresh(), jornadas=3)
     adds = [m for m in moves if m.kind == "add"]
-    assert adds and adds[0].buy.player_id == 100 and adds[0].sell is None
+    assert [m.buy.player_id for m in adds] == [100]
 
 
 def test_injured_players_are_never_suggested_buys():
