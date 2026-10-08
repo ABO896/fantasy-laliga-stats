@@ -183,3 +183,46 @@ def test_a_finished_run_has_no_current_dataset(client, session):
 def test_health_closes_a_run_left_running_by_a_killed_process(client, session):
     _make_run(session, status="running", started_at=datetime.now(UTC) - timedelta(hours=3))
     assert client.get("/api/health").json()["recentRuns"][0]["status"] == "failed"
+
+
+def _fixture(session, matchday, kickoff):
+    from scraper.sources.analiticafantasy_calendar import FixtureRecord
+    from storage.repository import upsert_fixtures
+
+    upsert_fixtures(session, [FixtureRecord(
+        fixture_id=9000 + matchday, matchday=matchday, season_year=2026,
+        kickoff_utc=kickoff, kickoff_confirmed=True, is_final=False,
+        home_team="Barcelona", away_team="Athletic Club", home_team_id=529, away_team_id=531,
+        home_difficulty="easy", away_difficulty="hard",
+    )])
+
+
+def test_health_reports_the_next_jornada_lock(client, session):
+    kickoff = datetime.now(UTC) + timedelta(hours=20)
+    _fixture(session, 8, kickoff)
+    body = client.get("/api/health").json()
+    assert body["nextLock"]["jornada"] == 8
+    assert abs(datetime.fromisoformat(body["nextLock"]["locksAt"]) - kickoff) < timedelta(seconds=1)
+    assert body["nextLock"]["predictionsRecorded"] is False
+
+
+def test_predictions_recorded_since_the_market_update_count(client, session):
+    from core import expected_points as xp
+    from storage.models import ExpectedPointsPrediction, Player
+
+    _fixture(session, 8, datetime.now(UTC) + timedelta(hours=20))
+    now = datetime.now(UTC)
+    p = Player(external_id="x", name="X", team="Barcelona", position="MED",
+               created_at=now, updated_at=now)
+    session.add(p)
+    session.commit()
+    session.add(ExpectedPointsPrediction(
+        season_year=2026, jornada=8, player_id=p.id, model_version=xp.MODEL_VERSION,
+        predicted=3.0, basis="form", inputs="{}", created_at=now, updated_at=now,
+    ))
+    session.commit()
+    assert client.get("/api/health").json()["nextLock"]["predictionsRecorded"] is True
+
+
+def test_no_calendar_means_no_lock(client):
+    assert client.get("/api/health").json()["nextLock"] is None

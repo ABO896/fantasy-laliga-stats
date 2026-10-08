@@ -36,6 +36,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
     recentRuns: [],
     playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: null },
     suggestComplete: false,
+    nextLock: null,
     ...overrides,
   };
 }
@@ -155,5 +156,35 @@ describe("StaleBanner", () => {
     const button = await screen.findByRole("button", { name: "Refreshing… (player pages)" });
     expect(button).toBeDisabled();
     expect(screen.getByRole("button", { name: "Complete refresh" })).toBeDisabled();
+  });
+
+  it("reminds to refresh before a jornada locks, even when the data is fresh", async () => {
+    const locksAt = new Date(Date.now() + 20 * 3600_000).toISOString();
+    vi.mocked(fetchHealth).mockResolvedValue(
+      buildHealth({ isStale: false, nextLock: { jornada: 8, locksAt, predictionsRecorded: false } }),
+    );
+    renderWithClient(<StaleBanner />);
+    expect(await screen.findByText(/J8 locks/)).toBeInTheDocument();
+    expect(screen.getByText(/Refresh before then to record predictions/)).toBeInTheDocument();
+  });
+
+  it("stays quiet when the lock is days away or predictions are recorded", async () => {
+    const far = new Date(Date.now() + 60 * 3600_000).toISOString();
+    const near = new Date(Date.now() + 20 * 3600_000).toISOString();
+    vi.mocked(fetchHealth).mockResolvedValue(
+      buildHealth({ isStale: false, nextLock: { jornada: 8, locksAt: far, predictionsRecorded: false } }),
+    );
+    const { unmount } = renderWithClient(<StaleBanner />);
+    await vi.waitFor(() => expect(fetchHealth).toHaveBeenCalled());
+    expect(screen.queryByText(/locks/)).not.toBeInTheDocument();
+    unmount();
+
+    vi.mocked(fetchHealth).mockClear();
+    vi.mocked(fetchHealth).mockResolvedValue(
+      buildHealth({ isStale: false, nextLock: { jornada: 8, locksAt: near, predictionsRecorded: true } }),
+    );
+    renderWithClient(<StaleBanner />);
+    await vi.waitFor(() => expect(fetchHealth).toHaveBeenCalled());
+    expect(screen.queryByText(/locks/)).not.toBeInTheDocument();
   });
 });

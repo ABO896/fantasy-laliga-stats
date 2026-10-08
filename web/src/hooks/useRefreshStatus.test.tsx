@@ -35,6 +35,7 @@ function health(newest: ScrapeRunDto): HealthResponse {
     recentRuns: [newest],
     playerPages: { players: 0, complete: 0, withGaps: 0, withMatchGaps: 0, oldestLastDay: null },
     suggestComplete: false,
+    nextLock: null,
   };
 }
 

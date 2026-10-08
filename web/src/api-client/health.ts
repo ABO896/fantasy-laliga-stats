@@ -48,6 +48,10 @@ export interface HealthResponse {
    * running — the last one is stale, missing entirely, or some player
    * has match gaps (`playerPages.withMatchGaps`). */
   suggestComplete: boolean;
+  /** The next jornada's lineup deadline (its first kickoff), and whether
+   * expected points for it were recorded since the latest market update.
+   * `null` with no fixture calendar. */
+  nextLock: { jornada: number; locksAt: string; predictionsRecorded: boolean } | null;
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
