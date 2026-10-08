@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import RefreshControls from "./RefreshControls";
 
@@ -9,10 +10,21 @@ vi.mock("../api-client/health", async () => {
   return {
     ...actual,
     triggerScrape: vi.fn(),
+    // No run going: the controls read the shared refresh status.
+    fetchHealth: vi.fn(() => Promise.reject(new Error("offline"))),
   };
 });
 
 import { ScrapeAlreadyRunningError, triggerScrape } from "../api-client/health";
+
+function renderControls() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <RefreshControls />
+    </QueryClientProvider>,
+  );
+}
 
 beforeEach(() => {
   localStorage.clear();
@@ -22,7 +34,7 @@ beforeEach(() => {
 describe("RefreshControls", () => {
   it("Refresh now triggers quick by default", async () => {
     vi.mocked(triggerScrape).mockResolvedValue({ scrapeRunId: 1 });
-    render(<RefreshControls />);
+    renderControls();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
 
@@ -31,7 +43,7 @@ describe("RefreshControls", () => {
 
   it("toggling + squad & watchlist sends mine, and the choice survives a remount", async () => {
     vi.mocked(triggerScrape).mockResolvedValue({ scrapeRunId: 1 });
-    const { unmount } = render(<RefreshControls />);
+    const { unmount } = renderControls();
 
     fireEvent.click(screen.getByRole("checkbox", { name: "+ squad & watchlist" }));
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
@@ -40,7 +52,7 @@ describe("RefreshControls", () => {
 
     unmount();
     vi.mocked(triggerScrape).mockClear();
-    render(<RefreshControls />);
+    renderControls();
 
     expect(screen.getByRole("checkbox", { name: "+ squad & watchlist" })).toBeChecked();
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
@@ -50,7 +62,7 @@ describe("RefreshControls", () => {
 
   it("Complete refresh triggers complete", async () => {
     vi.mocked(triggerScrape).mockResolvedValue({ scrapeRunId: 1 });
-    render(<RefreshControls />);
+    renderControls();
 
     fireEvent.click(screen.getByRole("button", { name: "Complete refresh" }));
 
@@ -61,7 +73,7 @@ describe("RefreshControls", () => {
     vi.mocked(triggerScrape).mockRejectedValue(
       new ScrapeAlreadyRunningError("A scrape is already running"),
     );
-    render(<RefreshControls />);
+    renderControls();
 
     fireEvent.click(screen.getByRole("button", { name: "Refresh now" }));
 

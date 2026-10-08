@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchHealth } from "../api-client/health";
 import RefreshControls from "./RefreshControls";
+import { useRefreshStatus } from "../hooks/useRefreshStatus";
 
 /** Madrid, because the market update is a wall-clock event there and the
  * owner's own day runs on it. */
@@ -29,12 +30,14 @@ export default function StaleBanner() {
     queryFn: fetchHealth,
     staleTime: 60_000,
   });
+  // Polls while a refresh runs, and reloads every page's data when it ends.
+  const { running } = useRefreshStatus();
 
   async function handleTriggered() {
     await queryClient.invalidateQueries({ queryKey: ["health"] });
   }
 
-  if (!data || !data.isStale || dismissed) {
+  if (!data || (!data.isStale && !running) || dismissed) {
     return null;
   }
 

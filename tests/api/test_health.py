@@ -158,3 +158,28 @@ def test_no_stored_staleness_flag(client, session):
     session.commit()
 
     assert client.get("/api/health").json()["isStale"] is True
+
+
+def test_a_running_run_names_the_dataset_it_is_on(client, session):
+    from storage.models import DatasetRun
+
+    now = datetime.now(UTC)
+    run = _make_run(session, status="running", started_at=now - timedelta(minutes=3))
+    for name, status in (("market", "success"), ("player_pages", "running")):
+        session.add(DatasetRun(scrape_run_id=run.id, dataset=name, status=status, started_at=now))
+    session.commit()
+
+    newest = client.get("/api/health").json()["recentRuns"][0]
+    assert newest["status"] == "running"
+    assert newest["currentDataset"] == "player_pages"
+
+
+def test_a_finished_run_has_no_current_dataset(client, session):
+    now = datetime.now(UTC)
+    _make_run(session, status="success", started_at=now, finished_at=now)
+    assert client.get("/api/health").json()["recentRuns"][0]["currentDataset"] is None
+
+
+def test_health_closes_a_run_left_running_by_a_killed_process(client, session):
+    _make_run(session, status="running", started_at=datetime.now(UTC) - timedelta(hours=3))
+    assert client.get("/api/health").json()["recentRuns"][0]["status"] == "failed"

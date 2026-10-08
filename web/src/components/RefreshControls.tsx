@@ -1,4 +1,5 @@
 import { useState, type ChangeEvent } from "react";
+import { useRefreshStatus } from "../hooks/useRefreshStatus";
 import {
   ScrapeAlreadyRunningError,
   triggerScrape,
@@ -45,7 +46,11 @@ export default function RefreshControls({ onTriggered, disabled = false }: Refre
   const [isTriggering, setIsTriggering] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const busy = disabled || isTriggering;
+  const { running, currentDataset } = useRefreshStatus();
+  const busy = disabled || isTriggering || running;
+  const busyLabel = currentDataset
+    ? `Refreshing… (${currentDataset.replaceAll("_", " ")})`
+    : "Refreshing…";
 
   async function trigger(mode: ScrapeMode) {
     setError(null);
@@ -87,7 +92,7 @@ export default function RefreshControls({ onTriggered, disabled = false }: Refre
         disabled={busy}
         className="btn btn-primary"
       >
-        {busy ? "Refreshing…" : "Refresh now"}
+        {busy ? busyLabel : "Refresh now"}
       </button>
       <button
         type="button"

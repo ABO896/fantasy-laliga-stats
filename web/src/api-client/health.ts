@@ -12,6 +12,8 @@ export interface ScrapeRunDto {
   rowCount: number;
   validationErrors: string[];
   mode: ScrapeMode;
+  /** The dataset a `running` run is on (e.g. `player_pages`), else `null`. */
+  currentDataset: string | null;
 }
 
 /** Coverage of the `player_pages` dataset (Task 5/T-05): how many tracked

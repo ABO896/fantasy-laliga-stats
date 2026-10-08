@@ -27,6 +27,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
       rowCount: 342,
       validationErrors: [],
       mode: "quick",
+      currentDataset: null,
     },
     lastCompleteRun: null,
     isStale: false,
@@ -129,5 +130,30 @@ describe("StaleBanner", () => {
     expect(
       screen.queryByText("A complete refresh is recommended — some players' history is behind."),
     ).not.toBeInTheDocument();
+  });
+
+  it("stays up and disabled for the whole run, naming the step it is on", async () => {
+    vi.mocked(fetchHealth).mockResolvedValue(
+      buildHealth({
+        isStale: true,
+        recentRuns: [
+          {
+            id: 2,
+            startedAt: "2026-10-08T10:00:00Z",
+            finishedAt: null,
+            status: "running",
+            rowCount: 0,
+            validationErrors: [],
+            mode: "quick",
+            currentDataset: "player_pages",
+          },
+        ],
+      }),
+    );
+    renderWithClient(<StaleBanner />);
+
+    const button = await screen.findByRole("button", { name: "Refreshing… (player pages)" });
+    expect(button).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Complete refresh" })).toBeDisabled();
   });
 });

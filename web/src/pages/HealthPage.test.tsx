@@ -24,6 +24,7 @@ function buildRun(overrides: Partial<ScrapeRunDto> & { id: number }): ScrapeRunD
     status: "success",
     rowCount: 342,
     validationErrors: [],
+      currentDataset: null,
     mode: "quick",
     ...overrides,
   };
