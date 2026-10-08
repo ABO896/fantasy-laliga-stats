@@ -1,9 +1,8 @@
 # Fantasy LaLiga Stats
 
-**A personal, locally-run analytics app for [LaLiga Fantasy](https://fantasy.laliga.com)'s
-Manager mode.** It gathers more about every player than any single public source shows, runs its
-own models on top, and turns all of it into one answer: *who should I be holding right now, and
-who should I move?*
+A self-hosted analytics app for the Manager mode of [LaLiga Fantasy](https://fantasy.laliga.com).
+It collects player, market and match data from public sources, runs its own models on top, and
+answers one question: **which players should I hold, and which should I move?**
 
 ![Python](https://img.shields.io/badge/python-3.12%2B-3776AB?logo=python&logoColor=white)
 ![FastAPI](https://img.shields.io/badge/FastAPI-0.141-009688?logo=fastapi&logoColor=white)
@@ -12,52 +11,70 @@ who should I move?*
 ![SQLite](https://img.shields.io/badge/SQLite-local-003B57?logo=sqlite&logoColor=white)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-> Single user, runs on `127.0.0.1`, no accounts, no cloud. Not affiliated with LaLiga, DAZN or
-> any of the data sources below.
+![The player browser](docs/images/players.png)
 
-![The player browser, sorted by Power Score](docs/images/players.png)
-
----
+Fantasy LaLiga Stats is a single-user app that runs on `127.0.0.1`. It has no accounts and no
+cloud component, and it is not affiliated with LaLiga, DAZN or any of the data sources it reads.
 
 ## Contents
 
 - [Features](#features)
 - [Screenshots](#screenshots)
-- [How it works](#how-it-works)
-- [Quick start](#quick-start)
+- [Architecture](#architecture)
+- [Getting started](#getting-started)
+- [Usage](#usage)
 - [Configuration](#configuration)
-- [Refreshing data](#refreshing-data)
-- [Updating](#updating)
-- [Our models, and how good they are](#our-models-and-how-good-they-are)
+- [Models and validation](#models-and-validation)
 - [Development](#development)
-- [Project structure](#project-structure)
-- [Data sources and scraping](#data-sources-and-scraping)
+- [Data sources](#data-sources)
 - [License](#license)
 
 ## Features
 
-| Page | What you get |
-|---|---|
-| **Players** `/` | Every player with market value, price change, points, price per point, starter probability and availability — plus our own **Power Score**, **Economy Score** and **expected points (xP)**. Sortable, filterable by position, team and a price ceiling, with a ★ watchlist. |
-| **Player page** `/players/:id` | Market-value history, points per jornada, form, value momentum, consistency and valuation — each metric shows its inputs and the window it used — plus our market prediction, xP with its basis, and our ideal / maximum bid. |
-| **Compare** `/compare` | Two players side by side: key stats with the better value highlighted, and their value and points charts. |
-| **League stats** `/stats` | Per-jornada scores with tier distribution and per-team analytics, streaks over a configurable window, single-jornada records, leaderboards by any tracked stat — and a **Market model** tab with predicted risers and fallers, their live track record, and where our prediction and the source's disagree. |
-| **My squad** `/squad` | Your real squad on a pitch: click a player, click a slot. Reachable formations, squad value and points over time, and Power / Economy / xP on every card. |
-| **Transfers** `/transfers` | Ranked **sell → buy** suggestions with the signals behind each one, bargains, the best players per position (with a budget toggle), and our own bid numbers. Every suggestion is checked server-side to leave the squad legal, and confidence visibly drops when the data is stale. |
-| **Scrape health** `/health` | Every refresh and every dataset inside it: status, row counts, and the reason when something failed. |
+**Player verdicts.** Every player gets one label (*Elite*, *Bargain*, *Rising*, *Fair price*,
+*Overpriced*, *Avoid*, *Unproven* or *Unavailable*), up to two tags, a one-line reason and a
+confidence level. A second line compares the player with your own squad: keep, sell, upgrade, or
+which current starter they would replace. Labels are backtested, and any label that fails to beat
+its baseline is switched off (see [Models and validation](#models-and-validation)).
 
-Light and dark themes follow your system setting. Wide tables scroll inside their own box, so the
-page never scrolls sideways, down to phone width.
+**Player browser** (`/`). All ~560 players with market value, price change, points, our
+**Power** rating, **Value** (points per euro against a replacement-level starter), a playing-time
+class (*Nailed*, *Regular*, *Rotation*, *Fringe*), a 7-day price outlook, expected points (xP)
+and the verdict. Sort and filter by any of them; filters live in the URL, and a ★ watchlist
+filters the table to the players you follow.
+
+**Player page** (`/players/:id`). Market-value and points history, season statistics, and nine
+metric cards. Each card shows the value, its rank within the player's position, what the metric
+means, and a step-by-step table of how it was calculated.
+
+**My squad** (`/squad`). Your squad on a pitch: click a player, then a slot. Reachable formations
+update as the squad changes, the squad rules are enforced on the server, and squad value and
+points are charted over time.
+
+**Transfers** (`/transfers`). Ranked *sell → buy* suggestions with the signals behind each, the
+best players per position within your budget, and our own ideal and maximum bids. Every
+suggestion is checked to leave the squad legal, and confidence drops when the data is stale.
+
+**League stats** (`/stats`). Per-jornada scores and score distribution, team totals, streaks,
+single-jornada records and season leaderboards for 24 statistics. The **Market model** tab lists
+predicted risers and fallers, the models' live track record, and the verdict validation report.
+
+**Compare** (`/compare`). Two players side by side, with the better value highlighted.
+
+**Health** (`/health`). Every refresh and every dataset within it, with row counts, failures and
+their reasons, plus per-player data coverage.
+
+The interface follows the system light/dark setting and works down to phone width.
 
 ## Screenshots
 
-*Taken with a demo squad, not a real one.*
+*Taken with a demo squad.*
 
 | | |
 |---|---|
-| **My squad** — the XI on a pitch, with Power, Economy and xP on every card, and squad value and points over time<br/>![My squad](docs/images/squad.png) | **Transfers** — ranked sell → buy moves, each with the signals that drove it and its confidence<br/>![Transfers](docs/images/transfers.png) |
-| **Player page** — history, season statistics, expected points and analytics, each showing its inputs<br/>![Player page](docs/images/player-detail.png) | **Market model** — predicted risers and fallers, and the model's own scored track record<br/>![Market model](docs/images/market-model.png) |
-| **Compare** — two players side by side<br/>![Compare](docs/images/compare.png) | **League stats** — any jornada's scores, score spread and team totals<br/>![League stats](docs/images/stats-scores.png) |
+| **My squad**<br/>![My squad](docs/images/squad.png) | **Transfers**<br/>![Transfers](docs/images/transfers.png) |
+| **Player page**<br/>![Player page](docs/images/player-detail.png) | **Market model**<br/>![Market model](docs/images/market-model.png) |
+| **Compare**<br/>![Compare](docs/images/compare.png) | **League stats**<br/>![League stats](docs/images/stats-scores.png) |
 
 <details>
 <summary>Dark mode</summary>
@@ -66,129 +83,159 @@ page never scrolls sideways, down to phone width.
 
 </details>
 
-## How it works
+## Architecture
 
 ```mermaid
 flowchart LR
-    AF["analiticafantasy.com<br/>market · points · stats · predictions · calendar"] --> S
+    AF["analiticafantasy.com<br/>market · points · stats · player pages · calendar"] --> S
     FD["football-data.co.uk<br/>results · team xG · odds"] --> S
-    S["scraper<br/>validate before write"] --> DB[("SQLite<br/>data/fantasy.db")]
-    DB --> M["core/ models<br/>analytics · market model · xP · transfers"]
+    S["scraper<br/>validate before write"] --> DB[("SQLite")]
+    DB --> M["core/<br/>pure models"]
     M --> DB
-    DB --> API["FastAPI<br/>127.0.0.1:8000"]
-    API --> WEB["React app<br/>127.0.0.1:5173"]
+    DB --> API["FastAPI<br/>:8000"]
+    API --> WEB["React app<br/>:5173"]
 ```
 
-- **One refresh entrypoint** (`python -m scraper.run`) fetches each dataset independently. A
-  failing source is recorded on its own and never takes the others down, and a malformed page is
-  rejected rather than written.
-- **Model code is pure.** Everything in `core/` is free of I/O, so every formula is unit-tested
-  in isolation.
-- **Rules are enforced server-side only.** Every cap and formation comes from
+- **Independent datasets.** A refresh runs each dataset separately. One failing source is
+  recorded on its own and does not stop the others, and a malformed page is rejected rather than
+  written.
+- **Pure model code.** Everything in `core/` is free of I/O and unit-tested in isolation. The live
+  app and the backtesting harness call the same functions.
+- **Server-side rules.** Squad caps, quotas and formations come from
   [`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md) via
-  `core/rules_data/laliga_fantasy.json`, never hard-coded; the client renders the server's
-  verdicts.
-- **The schema changes only through Alembic migrations**, and the test suite builds its database
-  through the same migrations.
+  `core/rules_data/laliga_fantasy.json`. The client only renders the server's decisions.
+- **Migrations only.** The schema changes only through Alembic, and the test suite builds its
+  database through the same migrations.
 
-## Quick start
+```
+api/          FastAPI app and routes
+core/         pure logic: parsing, validation, rules, analytics, models
+storage/      SQLModel tables, repositories, model runners and backtests
+scraper/      source adapters and the refresh / backfill entrypoints
+migrations/   Alembic revisions
+web/          React 19, Vite, TypeScript, TanStack Query/Table, Recharts, Tailwind v4
+tests/        pytest suite (Vitest tests sit next to their components)
+docs/         game rules and scraping policy
+```
 
-**Requirements:** Python 3.12+, [`uv`](https://docs.astral.sh/uv/), Node.js 20.19+ or 22.12+
-with npm. Developed on macOS; Linux should work the same.
+## Getting started
+
+**Requirements:** Python 3.12+, [uv](https://docs.astral.sh/uv/), and Node.js 20.19+ or 22.12+.
+Developed on macOS; Linux should work unchanged.
 
 ```bash
 git clone https://github.com/ABO896/fantasy-laliga-stats.git
 cd fantasy-laliga-stats
 
-uv sync                                  # Python dependencies (creates .venv/)
-uv run playwright install chromium       # browser used by the player scraper
-npm --prefix web install                 # frontend dependencies
+uv sync                               # Python dependencies
+uv run playwright install chromium    # browser used for player pages
+npm --prefix web install              # frontend dependencies
 
-cp .env.example .env                     # defaults work as-is
-uv run alembic upgrade head              # create the SQLite database
+cp .env.example .env                  # defaults work as-is
+uv run alembic upgrade head           # create the database
 
-make dev                                 # API on :8000 + web app on :5173
+make dev                              # API on :8000, web app on :5173
 ```
 
-Open **http://127.0.0.1:5173**. The database starts empty: the banner offers **Refresh now**, or
-run `make scrape`. To give the charts and models some history straight away, backfill last
-season once:
+Open <http://127.0.0.1:5173>. The database starts empty; use **Refresh now** in the banner, or
+run `make scrape`. To seed the charts and models with history, backfill last season once:
 
 ```bash
 make backfill                                                    # 2025/26 points per jornada
 uv run python -m scraper.backfill --season 2025 --football-data  # 2025/26 results and odds
 ```
 
-If a page says it can't reach the API, the backend isn't running — `make api` starts it on its
-own.
+If the app reports that it cannot reach the API, start the backend on its own with `make api`.
+
+## Usage
+
+### Refreshing data
+
+Data refreshes on demand rather than on a schedule. When data is stale the app shows a banner;
+refresh from there, from the Health page, or from a terminal:
+
+| Command | Refresh | What it fetches |
+|---|---|---|
+| `make scrape` | Quick | Market, points, season statistics, predictions, fixtures, results; then runs the models |
+| `make scrape-mine` | Quick + my players | The above, plus the player pages of your squad and watchlist |
+| `make scrape-full` | Complete | The above, plus every player page that is due, within a request budget |
+
+Player pages supply per-match minutes and daily prices, which the playing-time class and the
+verdict depend on. Until a player's page has been fetched, their verdict is *Unproven* or carries
+low confidence; run a Complete refresh to fill them in.
+
+An earlier version refreshed daily from `launchd`. It failed silently for eleven days and lost
+history that could not be recovered, so refreshes now run only while the app is in use. The
+trade-off is gaps in history on days it is not opened.
+
+### Updating
+
+```bash
+git pull
+uv sync && npm --prefix web install
+cp data/fantasy.db data/fantasy.db.backup-$(date +%Y%m%d)
+uv run alembic upgrade head
+```
+
+Your squad, watchlist, settings and history live in `data/fantasy.db`, and your configuration in
+`.env`. Both are git-ignored, so `git pull` never touches them. Migrations alter tables in place;
+one only removes data when the feature it belongs to is removed, and its commit says so. The
+backup covers that case.
 
 ## Configuration
 
-Settings are read from `.env` (see [`.env.example`](.env.example)) and fall back to sensible
-defaults. The ones you're most likely to touch:
+Settings are read from `.env` (see [`.env.example`](.env.example)), with defaults for everything.
 
 | Variable | Default | Purpose |
 |---|---|---|
 | `DB_PATH` | `./data/fantasy.db` | SQLite database file |
-| `RAW_SNAPSHOT_ROOT` | `./data/raw_scrapes` | Retained raw HTML, for debugging a bad scrape |
-| `RAW_RETENTION_DAYS` | `7` | How long raw HTML is kept; purged on every refresh |
-| `USER_AGENT` | identifies this project | Sent with every request — keep it honest |
-| `FOOTBALL_DATA_ENABLED` | `true` | Set to `false` to skip football-data.co.uk entirely |
-| `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Loopback only by design — never `0.0.0.0` |
+| `RAW_SNAPSHOT_ROOT` | `./data/raw_scrapes` | Raw HTML kept for debugging a bad scrape |
+| `RAW_RETENTION_DAYS` | `7` | Days raw HTML is kept; purged on each refresh |
+| `USER_AGENT` | identifies this project | Sent with every request |
+| `FOOTBALL_DATA_ENABLED` | `true` | Set to `false` to skip football-data.co.uk |
+| `API_HOST` / `API_PORT` | `127.0.0.1` / `8000` | Loopback only; do not bind to `0.0.0.0` |
 
-Premium-league options (the extra formations and the bench) are toggled in the app under
-**Settings**.
+League options, such as premium formations and the bench, are set in the app under **Settings**.
 
-> **Testing against a copy of your database?** Point **both** `DB_PATH` and `RAW_SNAPSHOT_ROOT`
-> at temporary locations. A refresh purges old raw HTML under `RAW_SNAPSHOT_ROOT`, whichever
-> database it is writing to.
+> **Testing against a copy of your database?** Point both `DB_PATH` and `RAW_SNAPSHOT_ROOT` at
+> temporary locations. A refresh purges old raw HTML under `RAW_SNAPSHOT_ROOT` regardless of
+> which database it writes to.
 
-## Refreshing data
+## Models and validation
 
-There is **no schedule, by design**. When the data is stale the app says so and offers
-**Refresh now**; `make scrape` does the same from a terminal. A refresh runs nine datasets:
+The source site paywalls its own predictions, so the app builds its own and scores them against
+what actually happened. Track records are shown in the app, not only here.
 
-`market` · `jornada_points` · `season_stats` · `points_predictions` · `market_predictions` ·
-`fixtures` · `football_data` · `market_model` · `expected_points`
+| Model | What it does | How it performs |
+|---|---|---|
+| **Power** | Points per team match, shrunk toward a prior and calibrated, times availability | Rank correlation with future points 0.43 in backtest (previous version 0.40) |
+| **Value** | Points per euro against a replacement-level regular starter, over the next 3 jornadas | Input to the verdict; validated through it |
+| **Playing time** | Start and play chance from minutes, adjusted for availability | Requires player-page data |
+| **Expected points (xP)** | Per player, per jornada, from team-level odds, start chance and form | Against the source's prediction: MAE 2.40 vs 2.38, RMSE 3.34 vs 3.41, Spearman 0.54 vs 0.52 |
+| **7-day price outlook** | Per-position ridge regression on daily prices, with an 80 % interval | Scored at 7 days against a "repeat last week" baseline; interval coverage is currently ~70 % |
+| **Next-day market move** | Rise or fall at the next market update | 95.0 % correct vs 94.6 % for repeating the last move; *strong* calls 99.0 %, *weak* 73.8 % |
+| **Verdict** | One label per player from the inputs above | Walk-forward backtest, below |
 
-An earlier version scraped daily from `launchd`. Left unattended, it failed silently for eleven
-days and lost history that can't be recovered. A refresh that only runs while you're looking
-can't fail unseen. The trade-off is gaps in history on days the app isn't opened.
+**Verdict validation** (33 dates, compared with eligible players in the same position):
 
-## Updating
+| Label | Result | Status |
+|---|---|---|
+| Elite | +4.8 points over 3 jornadas (90 % CI 2.3 to 7.7) | On |
+| Avoid | Scores +5.7 on its claim | On |
+| Overpriced | +1.07 points per €M on its claim | On |
+| Rising | +22.5 pp price change (CI 19.4 to 25.9), but plain 7-day momentum scores +27.8 | On, adds little over momentum yet |
+| Bargain | Not yet scorable; needs 6+ matches and 3 finished jornadas | On, marked "not yet validated" |
+| Sell high | Beats chance (+10.4) but loses to momentum (+15.1) | Off |
+| Rotation risk | CI −5.1 to 19.9 includes zero | Off |
 
-```bash
-git pull
-uv sync && npm --prefix web install      # pick up any dependency changes
-cp data/fantasy.db data/fantasy.db.backup-$(date +%Y%m%d)   # before migrating
-uv run alembic upgrade head              # apply any new schema changes
-```
+The evidence is still thin: only 14 of the 33 dates had a points outcome. Re-run the report as
+the season progresses with `make verdict-report`; the result appears under Stats → Market model.
 
-**Your data is never touched by `git pull`.** Your squad, watchlist, settings and every
-snapshot live in `data/fantasy.db`, and your configuration in `.env` — both are git-ignored, so
-nothing in this repository can overwrite them. Schema changes arrive only as Alembic migrations,
-which alter tables in place rather than rebuilding the database. A migration only removes data
-when a feature it belongs to is removed, and the commit that does it says so; the backup above
-covers that case.
+**Known limits.** There is no permitted source for per-player xG or xA, so xP works from
+team-level data. Market demand (who is buying whom) is not observable, so price models infer it
+from proxies. Transfer-suggestion weights are set by hand and are not yet scored against outcomes.
 
-## Our models, and how good they are
-
-The source site paywalls its market and points predictions, so the app builds its own. Unlike
-the source, it **scores every prediction against what actually happened and shows the track
-record in the app**. Backtest results at release:
-
-| Model | Result |
-|---|---|
-| **Market move** (rise or fall at the next update) | 95.0 % correct on next-day calls, against 94.6 % for "same as the last move". Its value is the confidence label: *strong* calls were right 99.0 % of the time, *weak* ones 73.8 %. On the 44 player-days where both could be compared, the source did better (95.5 % vs 90.9 %). |
-| **Expected points (xP)** per player per jornada | Against the source's own prediction: slightly worse mean error (2.40 vs 2.38 points), better on large misses (RMSE 3.34 vs 3.41) and at ranking players (Spearman 0.54 vs 0.52). |
-| **Power / Economy Score** | Descriptive ratings of a player's recent fantasy output, and of that output relative to price. |
-| **Transfer suggestions and bids** | Weights are set by hand, not fitted, and not yet scored against outcomes. Treat them as a well-reasoned shortlist, not an oracle. |
-
-Two limits are worth knowing. There is no permitted source for per-player xG/xA, so xP works from
-team-level odds, starter probability and form. And market demand (who is buying whom) isn't
-observable at all, so market prediction is inference from proxies.
-
-To reproduce the xP backtest against your own data:
+To reproduce the xP backtest:
 
 ```bash
 uv run python -m storage.xp_backtest --db data/fantasy.db --fit
@@ -197,54 +244,40 @@ uv run python -m storage.xp_backtest --db data/fantasy.db --fit
 ## Development
 
 ```bash
-make test                     # pytest + Vitest
-uv run ruff check .           # lint (line length 100)
-npm --prefix web run build    # type-check + production build
+make test                     # pytest and Vitest
+uv run ruff check .           # lint
+npm --prefix web run build    # type-check and production build
 ```
 
-Every change should pass all four. Tests never touch the network: parser tests run against pages
-captured from the live sources, which are **not redistributed** with this repository. On a fresh
-clone those tests are skipped, with the missing file named in the reason — see
+All three should pass before a change is merged. Tests never use the network. Parser tests run
+against pages captured from the live sources, which are not redistributed here; on a fresh clone
+they are skipped with the missing file named in the reason. See
 [`tests/fixtures/README.md`](tests/fixtures/README.md) to capture your own.
 
-After pulling a change that adds a migration, back up your database and run
-`uv run alembic upgrade head`. A green test suite does not mean your real database is migrated.
+A passing test suite does not mean your real database is migrated. After pulling a change that
+adds a migration, back up the database and run `uv run alembic upgrade head`.
 
-## Project structure
-
-```
-api/          FastAPI app and routes
-core/         pure logic: parsing, validation, rules, analytics, models (no I/O)
-storage/      SQLModel models, database session, repository and model-runner functions
-scraper/      source adapters (fetch + parse) and the refresh / backfill entrypoints
-migrations/   Alembic revisions — the only thing allowed to change the schema
-web/          React 19 + Vite + TypeScript + TanStack Query/Table + Recharts + Tailwind v4
-tests/        pytest suite (Vitest tests sit next to their components in web/)
-docs/         the game's rules and the scraping policy
-```
-
-## Data sources and scraping
+## Data sources
 
 | Source | Used for |
 |---|---|
-| [analiticafantasy.com](https://www.analiticafantasy.com) | Players, market values and bids, jornada points, season statistics, points and market predictions, fixture calendar |
+| [analiticafantasy.com](https://www.analiticafantasy.com) | Players, market values, bids, jornada points, season statistics, per-player match data, predictions, fixtures |
 | [football-data.co.uk](https://www.football-data.co.uk) | LaLiga results, team shots and xG, pre-match and closing odds |
 
-Access is on demand only, sequential with jittered delays, bounded per run, and sent with an
-identifying User-Agent. A 403, 429 or bot challenge stops that source for the run, and nothing
-retries around it. There is no proxy rotation and no fingerprint spoofing. The full policy,
-including each source's terms as read by this project, is in
-[`docs/SCRAPING-POLICY.md`](docs/SCRAPING-POLICY.md) — read it before changing anything in
-`scraper/`.
+Requests are made on demand, sequentially with jittered delays, within a per-run budget, and with
+an identifying User-Agent. A 403, 429 or bot challenge stops that source for the rest of the run
+and is never retried around. There is no proxy rotation or fingerprint spoofing. The full policy,
+including each source's terms as this project reads them, is in
+[`docs/SCRAPING-POLICY.md`](docs/SCRAPING-POLICY.md); read it before changing `scraper/`.
 
-**Scraped data stays on the machine that fetched it.** None of it is committed here, and this
-project is for personal, non-commercial use. If you run it, you are responsible for respecting
+Scraped data stays on the machine that fetched it and is never committed to this repository. The
+project is for personal, non-commercial use, and anyone running it is responsible for respecting
 each source's terms.
 
-Game rules come from the operator's own help centre, never from third-party sites, and are
-recorded in [`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md).
+Game rules are taken from the operator's own help centre and recorded in
+[`docs/RULES-LALIGA-FANTASY.md`](docs/RULES-LALIGA-FANTASY.md).
 
 ## License
 
-[MIT](LICENSE). The license covers this code only — not data fetched from the sources above,
-which remains subject to each source's own terms.
+[MIT](LICENSE). The license covers the code only, not data fetched from the sources above, which
+remains subject to each source's terms.
