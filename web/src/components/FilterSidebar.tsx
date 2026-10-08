@@ -56,6 +56,10 @@ function toggle(list: string[], item: string): string[] {
   return list.includes(item) ? list.filter((v) => v !== item) : [...list, item];
 }
 
+/** The verdict labels that call for a move — everything but Fair price,
+ * Unproven and Unavailable, which together cover most of the league. */
+const ACTIONABLE = ["Elite", "Bargain", "Rising", "Overpriced", "Avoid"];
+
 type ChipFacet = "positions" | "teams" | "availability" | "verdict";
 
 interface Chip {
@@ -275,6 +279,19 @@ export default function FilterSidebar({
 
         <fieldset>
           <legend className={legendClass}>Verdict</legend>
+          <button
+            type="button"
+            className="btn btn-ghost mb-xs text-xs"
+            title="Elite, Bargain, Rising, Overpriced and Avoid — the labels that call for a move"
+            onClick={() =>
+              onChange({
+                ...value,
+                verdict: ACTIONABLE.filter((label) => !disabledLabels.includes(label)),
+              })
+            }
+          >
+            Actionable
+          </button>
           <div className="grid grid-cols-2 gap-x-sm lg:grid-cols-1">
             {VERDICT_LABELS.filter((label) => !disabledLabels.includes(label)).map((label) => (
               <label key={label} className={optionClass}>

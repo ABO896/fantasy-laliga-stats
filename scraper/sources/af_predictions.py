@@ -54,6 +54,10 @@ _MARKET_LISTS: tuple[tuple[str, str], ...] = (
 #: `replace_predictions` deletes by source, and must be told all four even
 #: when a list is empty today — see its docstring.
 MARKET_SOURCES: frozenset[str] = frozenset(source for _, source in _MARKET_LISTS)
+#: Lists the source may legitimately not publish (paywalled): not noted when absent.
+OPTIONAL_MARKET_SOURCES: frozenset[str] = frozenset(
+    {"market_possible_risers", "market_possible_fallers"}
+)
 
 
 def _rank(row: dict) -> tuple[float, float]:

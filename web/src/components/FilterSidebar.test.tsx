@@ -283,4 +283,13 @@ describe("FilterSidebar — disabled verdict labels (final review #11)", () => {
     expect(screen.queryByLabelText("Sell high")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Elite")).toBeInTheDocument();
   });
+
+  it("the Actionable preset keeps only the labels worth acting on", () => {
+    const onChange = renderSidebar(EMPTY, [buildPlayer({ playerId: 1 })]);
+    fireEvent.click(screen.getByRole("button", { name: "Actionable" }));
+    expect(onChange).toHaveBeenCalledWith({
+      ...EMPTY,
+      verdict: ["Elite", "Bargain", "Rising", "Overpriced", "Avoid"],
+    });
+  });
 });

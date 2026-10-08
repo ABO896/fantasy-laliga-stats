@@ -43,6 +43,7 @@ from scraper.sources.af_jornada import fetch_jornada, parse_jornada
 from scraper.sources.af_player_page import fetch_player_page, parse_player_page
 from scraper.sources.af_predictions import (
     MARKET_SOURCES,
+    OPTIONAL_MARKET_SOURCES,
     fetch_market_predictions,
     fetch_points_predictions,
     parse_market_predictions,
@@ -258,7 +259,10 @@ def ingest_market_predictions(session, run, settings) -> None:
             session, as_of, records, player_ids, run.id, MARKET_SOURCES
         )
 
-        missing = sorted(MARKET_SOURCES - found_sources)
+        # The two "possible" lists are optional: the source stopped publishing
+        # them (paywalled since at least 2026-10-01), and a note every run
+        # about them is noise. A missing top list is still noted.
+        missing = sorted(MARKET_SOURCES - OPTIONAL_MARKET_SOURCES - found_sources)
         errors = [f"missing lists: {', '.join(missing)}"] if missing else None
 
         finish_dataset_run(

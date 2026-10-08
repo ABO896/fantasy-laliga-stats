@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import pytest
+from sqlmodel import select
 
 from scraper.errors import ScrapeBlocked, ScrapeNotPublished
 from scraper.run import ingest_fixtures, run_daily_refresh
@@ -121,7 +122,7 @@ def test_a_blocked_calendar_still_leaves_the_market_scrape_written(
     ):
         result = run_daily_refresh()
 
-    assert session.query(PlayerSnapshot).count() > 0
+    assert session.exec(select(PlayerSnapshot)).first() is not None
     datasets = _datasets(session, result)
     assert datasets["market"].status == "success"
     assert datasets["fixtures"].status == "failed"
