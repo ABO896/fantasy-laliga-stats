@@ -55,7 +55,7 @@ from storage.db import get_engine
 from storage.expected_points import refresh_expected_points
 from storage.market_v2 import refresh_market_v2
 from storage.models import Player, RawScrape, ScrapeRun
-from storage.our_models import refresh_market_predictions
+from storage.our_models import score_market_predictions
 from storage.player_pages import (
     build_candidates,
     max_finished_week,
@@ -407,8 +407,8 @@ def ingest_player_pages(session, run, settings, mode: str, now: datetime | None 
 
 
 def run_our_models(session, run) -> None:
-    """Generate and score our own market predictions — v1 (MODEL-01/03) and
-    market-v2 (spec §4.4).
+    """Generate and score market-v2's predictions (spec §4.4), and score any
+    pending market-v1 calls (v1 itself was retired on 2026-10-08).
 
     Runs after every dataset ingest and after the run's status is settled,
     and swallows every exception: a model bug is recorded as a failed
@@ -420,16 +420,18 @@ def run_our_models(session, run) -> None:
     """
     dataset_run = start_dataset_run(session, run.id, "market_model")
     try:
-        a = refresh_market_predictions(session)
         b = refresh_market_v2(session, date.today(), datetime.now(UTC))
+        # market-v1 no longer predicts (retired 2026-10-08); its last calls
+        # are still scored as their outcomes arrive.
+        v1_scored = score_market_predictions(session)
         finish_dataset_run(
             session,
             dataset_run,
             "success",
-            row_count=a.generated + b.generated,
+            row_count=b.generated,
             errors=[
-                f"v1 generated {a.generated}, scored {a.scored}; "
-                f"v2 generated {b.generated}, scored {b.scored}"
+                f"v2 generated {b.generated}, scored {b.scored}; "
+                f"v1 (retired) scored {v1_scored}"
             ],
         )
     except Exception as exc:  # noqa: BLE001 — deliberately total, see docstring

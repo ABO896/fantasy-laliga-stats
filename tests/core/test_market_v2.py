@@ -61,3 +61,26 @@ def test_drop_risk_and_flat_band():
 def test_fit_dates_weekly():
     assert m2.fit_dates(D0, D0 + timedelta(days=15)) == [
         D0, D0 + timedelta(days=7), D0 + timedelta(days=14)]
+
+
+def test_persistence_with_no_move_is_not_drop_risk():
+    # The ±4 fallback band used to flag every player it covered.
+    out = m2.predict(row(1, "DEF", D0, 0.0, None), {})
+    assert out.basis == "persistence"
+    assert out.drop_risk is False
+
+
+def test_drop_risk_follows_the_expected_move():
+    assert m2.predict(row(1, "DEF", D0, -8.0, None), {}).drop_risk is True   # 0.5·−8 = −4
+    assert m2.predict(row(1, "DEF", D0, -4.0, None), {}).drop_risk is False  # −2
+
+
+def test_ridge_drop_risk_ignores_a_wide_lower_bound():
+    rows = []
+    for i in range(600):
+        r7 = (i % 21) - 10.0
+        rows.append(row(i, "MED", D0, r7=r7, target=0.8 * r7 + ((i % 7) - 3) * 2.0))
+    fits = m2.fit_models(rows, fit_date=D0 + timedelta(days=30))
+    out = m2.predict(row(1, "MED", D0, 0.0, None), fits)
+    assert out.lower < m2.DROP_RISK_PCT  # the interval reaches below −3 …
+    assert out.drop_risk is False        # … but the expected move does not

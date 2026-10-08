@@ -65,10 +65,19 @@ def test_bids_never_go_below_market_value():
     assert bids.maximum == 10_000_000
 
 
-def test_ideal_bid_is_the_predicted_post_update_value_for_a_riser():
-    bids = compute_bids(_p(1, predicted_pct=2.0))
-    assert bids.ideal == 10_200_000
-    assert bids.maximum >= bids.ideal
+def test_bids_use_the_daily_share_of_the_weekly_outlook():
+    # predicted_pct is market-v2's expected change over 7 days: +7 % is
+    # +1 % per market update.
+    bids = compute_bids(_p(1, predicted_pct=7.0))
+    assert bids.ideal == 10_100_000
+    assert bids.maximum == 10_300_000  # MAX_BID_HORIZON_UPDATES = 3 updates
+
+
+def test_no_outlook_means_market_value_bids_and_no_value_term():
+    a = assess_player(_p(1, predicted_pct=None), fixture_outlook(None, 3),
+                      jornadas=3, cash_per_point=CPP)
+    assert a.value_term == 0
+    assert a.bids.ideal == a.bids.maximum == 10_000_000
 
 
 def test_max_bid_adds_a_share_of_the_valuation_gap_and_is_capped():
@@ -76,7 +85,7 @@ def test_max_bid_adds_a_share_of_the_valuation_gap_and_is_capped():
     assert modest.maximum == round(10_000_000 * (1 + SURPLUS_SHARE * 0.2))
     huge_gap = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=0.0))
     assert huge_gap.maximum == round(10_000_000 * (1 + SURPLUS_SHARE * MAX_GAP_COUNTED))
-    capped = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=9.0))
+    capped = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=70.0))
     assert capped.maximum == round(10_000_000 * (1 + MAX_BID_PREMIUM))
 
 

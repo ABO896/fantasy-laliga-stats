@@ -345,3 +345,16 @@ def test_price_level_carries_the_last_known_value_forward(session):
     assert rows[(cheapest.id, d2)].x["price_level"] == pytest.approx(
         rows[(cheapest.id, d1)].x["price_level"]
     )
+
+
+def test_a_stored_row_reads_drop_risk_from_its_expected_move():
+    """Rows written under the old rule (lower bound < −3 %) carry
+    dropRisk=true; reading applies today's rule to the stored move."""
+    import json
+    from datetime import date
+
+    from storage.market_v2 import outlook_from_row
+
+    old = json.dumps({"lower": -5.0, "upper": 3.0, "dropRisk": True, "basis": "ridge"})
+    assert outlook_from_row(date(2026, 10, 1), -1.0, "fall", old).drop_risk is False
+    assert outlook_from_row(date(2026, 10, 1), -3.5, "fall", old).drop_risk is True

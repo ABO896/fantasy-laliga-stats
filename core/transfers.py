@@ -12,8 +12,8 @@ Built on Phase 10, not beside it:
   and by the chance of playing, and — once MODEL-02 lands — blends in
   expected points at `EXPECTED_POINTS_WEIGHT`. Without expected
   points it degrades to the backward-looking form, not to nothing.
-* **Bids** use our fair value (ANALYTICS-04) and our next-update prediction
-  (MODEL-01), never the source's bid numbers.
+* **Bids** use our fair value (ANALYTICS-04) and our 7-day price outlook
+  (market-v2), never the source's bid numbers.
 * **Legality** is `core.squad_rules`, untouched: a move is `evaluate_add` on
   the squad minus the sold player, plus an XI-feasibility check that
   `evaluate_add` deliberately does not make.
@@ -30,6 +30,7 @@ from datetime import datetime
 from core import analytics as an
 from core.fixture_difficulty import FixtureView, TeamFixture, upcoming_fixtures
 from core.freshness import _as_aware, is_stale, last_market_update
+from core.market_v2 import OUTLOOK_DAYS
 from core.rules import Rules, Violation
 from core.squad_rules import SquadMember, evaluate_add, evaluate_squad
 
@@ -122,8 +123,8 @@ class PlayerInput:
     valuation_gap: float | None  # ANALYTICS-04, fair/market − 1
     economy: float | None  # ANALYTICS-07
     power_score: float | None  # ANALYTICS-06
-    predicted_pct: float | None  # MODEL-01, next update
-    prediction_confidence: str | None  # MODEL-01's own vocabulary
+    predicted_pct: float | None  # market-v2: expected % change over 7 days
+    prediction_confidence: str | None  # market-v2's strong | moderate | weak
 
 
 # --- MODEL-05: our bids ---------------------------------------------------------------
@@ -143,16 +144,20 @@ def _unavailable(status: str) -> bool:
 def compute_bids(p: PlayerInput) -> Bids:
     """Our ideal and maximum bid.
 
+    `predicted %` is market-v2's expected change over `OUTLOOK_DAYS` (7)
+    days, so one market update's share of it is `predicted % / 7`.
+
     * **Ideal** = the value we predict the player will have after the next
-      update: `mv · (1 + max(predicted %, 0)/100)`. A faller's ideal bid is
+      update: `mv · (1 + max(predicted %, 0)/100/7)`. A faller's ideal bid is
       market value — the official rules forbid bidding below it.
-    * **Maximum** = `mv · (1 + H · max(predicted %, 0)/100
+    * **Maximum** = `mv · (1 + H · max(predicted %, 0)/100/7
       + SURPLUS_SHARE · min(max(gap, 0), MAX_GAP_COUNTED))`, clamped between
       the ideal bid and `mv · (1 + MAX_BID_PREMIUM)`. No surplus for a player who is
       injured: his fair value describes a player who is playing.
     """
     mv = p.market_value
-    rise = max(p.predicted_pct or 0.0, 0.0) / 100
+    # market-v2 predicts 7 days ahead; a bid prices in one update's share.
+    rise = max(p.predicted_pct or 0.0, 0.0) / 100 / OUTLOOK_DAYS
     ideal = round(mv * (1 + rise))
     surplus = 0.0
     if p.valuation_gap is not None and not _unavailable(p.availability):
@@ -586,10 +591,10 @@ def _signals(
             if pct is None:
                 return f"{a.name} no prediction"
             conf = f", {a.player.prediction_confidence}" if a.player.prediction_confidence else ""
-            return (f"{a.name} {pct:+.2f}% ({_fmt_eur(a.player.market_value * pct / 100)}"
+            return (f"{a.name} {pct:+.1f}% ({_fmt_eur(a.player.market_value * pct / 100)}"
                     f"{conf})")
 
-        text = "Next market update: " + move(buy) + (f"; {move(sell)}" if sell else "")
+        text = "Price over the next 7 days: " + move(buy) + (f"; {move(sell)}" if sell else "")
         out.append(Signal("value", text, buy.value_term - (sell.value_term if sell else 0.0)))
 
     if buy.efficiency is not None:
@@ -686,7 +691,7 @@ def suggest_moves(
 
     A move's gain is what it does to the **best XI** the squad can field
     (expected points per jornada × jornadas — only starters score), plus the
-    predicted next market move of the two players at the rules' cash per
+    predicted 7-day market move of the two players at the rules' cash per
     point. Efficiency, fixtures and the valuation gap are shown as the
     reasoning; the owner's ceiling is the only money constraint (TRANSFER-01
     — no derived budget). Every move passes `check_move` (TRANSFER-02).

@@ -201,7 +201,7 @@ function SuggestedMoves({ query }: { query: TransferQuery }) {
             points over {data.jornadas.spreadOver} jornada
             {data.jornadas.spreadOver === 1 ? "" : "s"}
             {data.jornadas.window.length > 0 && ` (J${data.jornadas.window.join(", J")})`} plus
-            the predicted next market move, at the game's cash-per-point rate. Every move keeps
+            the predicted 7-day market move, at the game's cash-per-point rate. Every move keeps
             the squad legal on the squad cap and a fieldable XI.
             {data.expectedPointsUsed ? " Expected points (MODEL-02) are blended in." : ""}
           </p>

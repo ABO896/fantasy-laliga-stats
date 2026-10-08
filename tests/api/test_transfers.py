@@ -227,3 +227,29 @@ def test_best_by_position_carries_the_within_position_power_rank(world, client):
     for p in ranked:
         assert set(p["powerRank"]) == {"rank", "of"}
         assert 1 <= p["powerRank"]["rank"] <= p["powerRank"]["of"]
+
+
+def test_transfers_read_the_market_v2_outlook_and_ignore_v1(world, session):
+    import json
+
+    from storage.models import MarketPrediction
+
+    star = world["market"][("MED", "cheap")]
+    made = date(2026, 9, 16)
+    session.add(MarketPrediction(
+        made_on=made, player_id=star, model_version="market-v1", predicted_pct=-9.0,
+        direction="fall", confidence="strong", inputs="{}", generated_at=datetime.now(UTC),
+        retroactive=False,
+    ))
+    session.add(MarketPrediction(
+        made_on=made, player_id=star, model_version="market-v2", predicted_pct=7.0,
+        direction="rise", confidence="strong",
+        inputs=json.dumps({"lower": 2.0, "upper": 12.0, "basis": "ridge"}),
+        generated_at=datetime.now(UTC), retroactive=False,
+    ))
+    session.commit()
+
+    ctx = build_context(session, RULES, SEASON, 3, datetime.now(UTC))
+    p = ctx.assessments[star].player
+    assert p.predicted_pct == 7.0
+    assert p.prediction_confidence == "strong"

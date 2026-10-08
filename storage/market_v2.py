@@ -42,7 +42,7 @@ MODEL_VERSION = m2.MODEL_VERSION
 #: his own latest outlook, so a part-filled refresh day never wipes everyone
 #: it skipped. The same cap bounds how far `build_rows` carries a price
 #: forward for the price-level percentile.
-OUTLOOK_MAX_AGE_DAYS = 7
+OUTLOOK_MAX_AGE_DAYS = om.OUTLOOK_MAX_AGE_DAYS
 
 
 @dataclass(frozen=True)
@@ -380,7 +380,9 @@ def outlook_from_row(
         direction=direction,
         lower=inputs.get("lower", predicted_pct),
         upper=inputs.get("upper", predicted_pct),
-        drop_risk=inputs.get("dropRisk", False),
+        # From the move, not the stored flag: rows written before 2026-10-08
+        # carry the old lower-bound rule's answer.
+        drop_risk=predicted_pct <= m2.DROP_RISK_PCT,
         basis=inputs.get("basis", ""),
         terms=inputs.get("terms", {}),
         made_on=made_on,

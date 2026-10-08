@@ -13,7 +13,10 @@ refit weekly, walk-forward: a fit made on day F only ever sees rows whose
     price_level     his price's percentile within his position, 0–1
 
 The interval is the fit's residual 10th/90th percentiles around the
-prediction; *drop risk* is a lower bound under −3 %. With too little
+prediction; *drop risk* is an expected move of −3 % or worse. (Until
+2026-10-08 it was a lower bound under −3 %: on 15,779 scored September
+predictions that flagged 79 % of players at 0.73 precision; the expected
+move flags 59 % at 0.87, against a 59 % base rate.) With too little
 history it falls back to persistence (half the last week's move), which is
 labelled as such. Every number here is a starting value; the track record
 publishes the naive baseline beside it (lesson 7).
@@ -155,12 +158,12 @@ def predict(row: Row, fits: Mapping[str, Fit]) -> Outlook:
     if fit is None:
         pct = PERSISTENCE_SHRINK * row.x.get("r7", 0.0)
         lower, upper = pct - PERSISTENCE_HALF_WIDTH, pct + PERSISTENCE_HALF_WIDTH
-        return Outlook(pct, direction_of(pct), lower, upper, lower < DROP_RISK_PCT,
+        return Outlook(pct, direction_of(pct), lower, upper, pct <= DROP_RISK_PCT,
                        "persistence", {"r7": pct})
     terms = {f: fit.coef[f] * (row.x[f] - fit.means[f]) / fit.scales[f] for f in FEATURES}
     pct = fit.intercept + sum(terms.values())
     lower, upper = pct + fit.q_low, pct + fit.q_high
-    return Outlook(pct, direction_of(pct), lower, upper, lower < DROP_RISK_PCT,
+    return Outlook(pct, direction_of(pct), lower, upper, pct <= DROP_RISK_PCT,
                    "ridge-pooled" if fit.pooled else "ridge",
                    {"intercept": fit.intercept} | terms)
 

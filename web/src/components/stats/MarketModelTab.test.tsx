@@ -1,5 +1,4 @@
 import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -48,7 +47,8 @@ const INPUTS = {
 function row(playerId: number, name: string, pct: number): MarketPredictionRow {
   return {
     playerId, name, team: "T", position: "MED", marketValue: 10_000_000, madeOn: "2026-09-16",
-    modelVersion: "market-v1", predictedPct: pct, direction: pct > 0 ? "rise" : "fall",
+    modelVersion: "market-v2", predictedPct: pct, direction: pct > 0 ? "rise" : "fall",
+    lower: pct - 4, upper: pct + 4, horizonDays: 7,
     confidence: Math.abs(pct) >= 1 ? "strong" : "weak", inputs: INPUTS, retroactive: false,
     outcome: null,
   };
@@ -74,6 +74,14 @@ function record(live: RecordBucket, retro: RecordBucket): TrackRecordResponse {
   };
 }
 
+const V2_RECORD: TrackRecordResponse = {
+  modelVersion: "market-v2",
+  ours: { live: bucket(0, 0, 16), retroactive: bucket(50, 40) },
+  intervalCoverage: 0.82,
+  mae: 1.2,
+  naive: { rule: "next week repeats last week", hitRate: 0.6, mae: 1.8 },
+};
+
 const DIVERGENCE: DivergenceResponse = {
   asOf: "2026-09-16", agree: 0, disagree: 1, ourCallMissing: 0,
   rows: [{
@@ -96,10 +104,10 @@ function renderTab() {
 describe("MarketModelTab (MODEL-01/03/04)", () => {
   beforeEach(() => {
     vi.mocked(fetchMarketPredictions).mockResolvedValue({
-      madeOn: "2026-09-16", modelVersion: "market-v1",
+      madeOn: "2026-09-16", modelVersion: "market-v2",
       predictions: [row(1, "Riser", 2.1), row(2, "Faller", -1.4)],
     });
-    vi.mocked(fetchTrackRecord).mockResolvedValue(record(bucket(0, 0, 556), bucket(6218, 5776)));
+    vi.mocked(fetchTrackRecord).mockResolvedValue(V2_RECORD);
     vi.mocked(fetchDivergence).mockResolvedValue(DIVERGENCE);
     vi.mocked(fetchVerdictValidation).mockResolvedValue({ generatedAt: null, labels: [], disabledLabels: [] });
   });
@@ -134,7 +142,12 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
   it("quotes the backtest, labelled as such, until live calls are scored", async () => {
     renderTab();
     expect(await screen.findByText(/backtest hit rates/)).toBeInTheDocument();
-    expect(screen.getByText(/Small sample/)).toBeInTheDocument();
+  });
+
+  it("labels the predictions as a 7-day outlook with its range", async () => {
+    renderTab();
+    expect(await screen.findByText(/Next 7 days/)).toBeInTheDocument();
+    expect(screen.getByText("-1.90% to +6.10%")).toBeInTheDocument(); // Riser 2.1 ± 4
   });
 
   it("shows disagreements with the source as a view", async () => {
@@ -144,28 +157,11 @@ describe("MarketModelTab (MODEL-01/03/04)", () => {
     expect(screen.getByText("disagree")).toBeInTheDocument();
   });
 
-  it("switches to the v2 7-day track record on toggle, and fetches it by version", async () => {
-    vi.mocked(fetchTrackRecord).mockImplementation((version: string = "market-v1") =>
-      Promise.resolve(
-        version === "market-v2"
-          ? {
-              modelVersion: "market-v2",
-              ours: { live: bucket(0, 0), retroactive: bucket(50, 40) },
-              intervalCoverage: 0.82,
-              mae: 1.2,
-              naive: { rule: "next week repeats last week", hitRate: 0.6, mae: 1.8 },
-            }
-          : record(bucket(0, 0, 556), bucket(6218, 5776)),
-      ),
-    );
+  it("shows only the 7-day model's track record, with no version toggle", async () => {
     renderTab();
-    await screen.findByText("Riser");
-
-    await userEvent.click(screen.getByText("v2 · 7-day"));
-
     expect(await screen.findByText(/Interval coverage/)).toBeInTheDocument();
-    expect(screen.getAllByText(/next week repeats last week/).length).toBeGreaterThan(0);
     expect(fetchTrackRecord).toHaveBeenCalledWith("market-v2");
+    expect(screen.queryByText("v1 · next update")).not.toBeInTheDocument();
   });
 });
 

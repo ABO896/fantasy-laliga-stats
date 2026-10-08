@@ -42,7 +42,9 @@ def _model_run(engine) -> DatasetRun:
         return s.exec(select(DatasetRun).where(DatasetRun.dataset == "market_model")).one()
 
 
-def test_a_refresh_writes_one_live_prediction_per_snapshot(engine):
+def test_a_refresh_no_longer_generates_market_v1(engine):
+    """market-v1 was retired on 2026-10-08: a refresh writes no v1 call and
+    the model step still succeeds."""
     set_engine(engine)
     html = FIXTURE_PATH.read_text(encoding="utf-8")
     with patch("scraper.run.fetch_pages", return_value=[html]):
@@ -51,9 +53,11 @@ def test_a_refresh_writes_one_live_prediction_per_snapshot(engine):
     assert result.status == "success"
     with Session(engine) as s:
         snapshots = s.exec(select(func.count()).select_from(PlayerSnapshot)).one()
-        preds = s.exec(select(MarketPrediction)).all()
-    assert len(preds) == snapshots > 0
-    assert not any(p.retroactive for p in preds)
+        v1 = s.exec(
+            select(MarketPrediction).where(MarketPrediction.model_version == "market-v1")
+        ).all()
+    assert snapshots > 0
+    assert v1 == []
     assert _model_run(engine).status == "success"
 
 
@@ -62,7 +66,7 @@ def test_a_model_failure_is_recorded_but_never_fails_the_scrape(engine):
     html = FIXTURE_PATH.read_text(encoding="utf-8")
     with (
         patch("scraper.run.fetch_pages", return_value=[html]),
-        patch("scraper.run.refresh_market_predictions", side_effect=RuntimeError("boom")),
+        patch("scraper.run.refresh_market_v2", side_effect=RuntimeError("boom")),
     ):
         result = run_daily_refresh()
 

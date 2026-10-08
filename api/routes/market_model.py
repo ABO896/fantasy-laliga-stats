@@ -24,7 +24,7 @@ def market_predictions(session: SessionDep, madeOn: date | None = None):  # noqa
 
 @router.get("/models/market/track-record")
 def market_track_record(
-    session: SessionDep, version: Literal["market-v1", "market-v2"] = "market-v1"
+    session: SessionDep, version: Literal["market-v1", "market-v2"] = "market-v2"
 ):
     return track_record_payload(session, version)
 

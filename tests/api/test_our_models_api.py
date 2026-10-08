@@ -5,7 +5,6 @@ from datetime import UTC, date, datetime
 
 from core import expected_points as xp
 from storage.models import Player, PlayerGameweekPoints, PlayerSnapshot, ScrapeRun, SquadMember
-from storage.our_models import refresh_market_predictions
 
 
 def _v2_score(history, position):
@@ -141,24 +140,55 @@ def test_player_analytics_404_and_bad_windows(session, client):
     assert client.get(f"/api/players/{ids[0]}/analytics?windows=0").status_code == 422
 
 
-def test_market_endpoints(session, client):
-    _seed(session, n=3)
-    refresh_market_predictions(session, today=date(2026, 9, 20),
-                               now=datetime(2026, 9, 20, tzinfo=UTC))
-    preds = client.get("/api/models/market/predictions").json()
-    assert preds["madeOn"] == "2026-09-02"
-    assert len(preds["predictions"]) == 3
-    assert preds["predictions"][0]["confidence"] in {"strong", "moderate", "weak"}
+def _v2(session, pid, made_on, pct, actual=None):
+    import json
 
-    record = client.get("/api/models/market/track-record").json()
-    assert record["ours"]["retroactive"]["scored"] == 3
-    assert record["ours"]["retroactive"]["byScoring"]["exact"]["scored"] == 3
+    from storage.models import MarketPrediction
+
+    session.add(MarketPrediction(
+        made_on=made_on, player_id=pid, model_version="market-v2", predicted_pct=pct,
+        direction="rise" if pct > 0.5 else "fall" if pct < -0.5 else "flat",
+        confidence="moderate",
+        inputs=json.dumps({"lower": pct - 4, "upper": pct + 4, "basis": "ridge",
+                           "horizonDays": 7}),
+        generated_at=datetime.now(UTC), retroactive=False,
+        actual_pct=actual, outcome_as_of=None if actual is None else made_on,
+        hit=None if actual is None else (actual > 0) == (pct > 0),
+    ))
+    session.commit()
+
+
+def test_market_endpoints_serve_market_v2(session, client):
+    ids = _seed(session, n=3)
+    _v2(session, ids[0], date(2026, 9, 1), -2.0, actual=-3.0)
+    _v2(session, ids[0], date(2026, 9, 2), 4.0)
+    _v2(session, ids[1], date(2026, 9, 2), -5.0)
+    _v2(session, ids[2], date(2026, 9, 1), 1.0)  # his latest is a day older
+    from storage.models import MarketPrediction
+    session.add(MarketPrediction(
+        made_on=date(2026, 9, 2), player_id=ids[1], model_version="market-v1",
+        predicted_pct=9.0, direction="rise", confidence="strong", inputs="{}",
+        generated_at=datetime.now(UTC), retroactive=False,
+    ))
+    session.commit()
+
+    preds = client.get("/api/models/market/predictions").json()
+    assert preds["modelVersion"] == "market-v2"
+    assert preds["madeOn"] == "2026-09-02"
+    by_id = {p["playerId"]: p for p in preds["predictions"]}
+    assert set(by_id) == set(ids)  # each player's own latest outlook
+    assert by_id[ids[1]]["predictedPct"] == -5.0
+    assert by_id[ids[1]]["horizonDays"] == 7
+    assert by_id[ids[1]]["lower"] == -9.0 and by_id[ids[1]]["upper"] == -1.0
+
+    older = client.get("/api/models/market/predictions?madeOn=2026-09-01").json()
+    assert {p["playerId"] for p in older["predictions"]} == {ids[0], ids[2]}
+
+    detail = client.get(f"/api/players/{ids[1]}/analytics").json()
+    assert detail["marketPrediction"]["modelVersion"] == "market-v2"
 
     div = client.get("/api/models/market/divergence").json()
     assert div == {"asOf": None, "rows": [], "agree": 0, "disagree": 0, "ourCallMissing": 0}
-
-    older = client.get("/api/models/market/predictions?madeOn=2026-09-01").json()
-    assert older["predictions"][0]["outcome"]["scoring"] == "exact"
 
 
 def test_market_predictions_empty(client):
@@ -167,7 +197,7 @@ def test_market_predictions_empty(client):
 
 
 def test_market_track_record_version_param(client):
-    assert client.get("/api/models/market/track-record").json()["modelVersion"] == "market-v1"
+    assert client.get("/api/models/market/track-record").json()["modelVersion"] == "market-v2"
 
     v2 = client.get("/api/models/market/track-record?version=market-v2")
     assert v2.status_code == 200
