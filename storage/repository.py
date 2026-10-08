@@ -417,18 +417,26 @@ def get_league_settings(session: Session) -> LeagueSettings:
     return settings
 
 
+_KEEP = object()
+
+
 def set_league_settings(
     session: Session,
     *,
     premium_formations_enabled: bool,
     premium_bench_enabled: bool,
+    cash_available: int | None | object = _KEEP,
 ) -> LeagueSettings:
     """Replace both flags in one commit. They are written together because
     the UI submits them together; a partial update API would invite a caller
-    to send one flag and silently reset the other."""
+    to send one flag and silently reset the other. `cash_available` is
+    written only when passed (`None` clears it), so the premium form, which
+    doesn't know about the budget, can never wipe it."""
     settings = get_league_settings(session)
     settings.premium_formations_enabled = premium_formations_enabled
     settings.premium_bench_enabled = premium_bench_enabled
+    if cash_available is not _KEEP:
+        settings.cash_available = cash_available
     session.add(settings)
     session.commit()
     session.refresh(settings)

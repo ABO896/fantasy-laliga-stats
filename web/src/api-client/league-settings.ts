@@ -7,6 +7,9 @@ const API_BASE_URL = "http://127.0.0.1:8000/api";
 export interface LeagueSettings {
   premiumFormationsEnabled: boolean;
   premiumBenchEnabled: boolean;
+  /** The owner's saved budget in euros, typed in on Transfers; `null` when
+   * not entered. Optional on a save: omitted leaves it unchanged. */
+  cashAvailable?: number | null;
 }
 
 export function fetchLeagueSettings(): Promise<LeagueSettings> {

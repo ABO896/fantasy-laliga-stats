@@ -82,6 +82,8 @@ export interface Envelope {
   asOf: string | null;
   jornadas: { requested: number; window: number[]; spreadOver: number };
   ceiling: { max: number; basis: PriceBasis } | null;
+  /** The saved budget the moves were limited by (sale proceeds count). */
+  budget: { cash: number; source: "settings" } | null;
   expectedPointsUsed: boolean;
   freshness: Freshness;
 }
@@ -158,8 +160,9 @@ export interface PlayerBidResponse extends BidRow {
   freshness: Freshness;
 }
 
-/** The owner's price ceiling — BROWSE-05's `max` and `basis`, never a
- * derived budget. `max === null` means no ceiling. */
+/** An explicit price ceiling from the URL — BROWSE-05's `max` — which
+ * overrides the saved budget. `max === null`: the server applies the saved
+ * budget (on `basis`), or no limit when none is saved. */
 export interface TransferQuery {
   n: number;
   max: number | null;
@@ -172,10 +175,8 @@ export function transferParams(
 ): string {
   const params = new URLSearchParams();
   params.set("n", String(q.n));
-  if (q.max !== null) {
-    params.set("max", String(q.max));
-    params.set("basis", q.basis);
-  }
+  if (q.max !== null) params.set("max", String(q.max));
+  params.set("basis", q.basis);
   for (const [key, value] of Object.entries(extra)) {
     if (value !== null && value !== undefined) params.set(key, String(value));
   }

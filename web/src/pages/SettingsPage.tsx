@@ -12,7 +12,11 @@ import PageHeader from "../components/ui/PageHeader";
 // features a league admin switches on, so repeating "Premium" on every row
 // would be redundant, not clearer. This is a deliberate copy decision, not
 // an oversight.
-const TOGGLES: { key: keyof LeagueSettings; label: string; help: string }[] = [
+const TOGGLES: {
+  key: "premiumFormationsEnabled" | "premiumBenchEnabled";
+  label: string;
+  help: string;
+}[] = [
   {
     key: "premiumFormationsEnabled",
     label: "Formations",

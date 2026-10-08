@@ -7,6 +7,7 @@ direct table-creation helper against this metadata.
 
 from datetime import date, datetime
 
+from sqlalchemy import BigInteger, Column
 from sqlmodel import Field, SQLModel
 
 
@@ -143,6 +144,9 @@ class LeagueSettings(SQLModel, table=True):
     id: int = Field(default=1, primary_key=True)
     premium_formations_enabled: bool
     premium_bench_enabled: bool
+    #: The owner's cash, typed in on Transfers (migration 0019). `None`: not
+    #: entered — Transfers then applies no price limit.
+    cash_available: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
 
 
 class PlayerGameweekPoints(SQLModel, table=True):

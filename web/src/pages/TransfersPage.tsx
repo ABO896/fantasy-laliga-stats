@@ -1,5 +1,6 @@
-import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
+import { useMemo, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { fetchLeagueSettings, saveLeagueSettings } from "../api-client/league-settings";
 import { useSearchParams } from "react-router-dom";
 import {
   fetchBargains,
@@ -28,9 +29,10 @@ import VerdictChip from "../components/verdict/VerdictChip";
 /** Phase 11 — "who should I move?". Four sections, all server-computed:
  * suggested moves, bargains, best by position, and our own bids.
  *
- * The ceiling is BROWSE-05's, carried in the URL the same way (`max` in
- * euros, `basis`), and typed by the owner from the figure they read off
- * the official app. Nothing on this page derives a budget. */
+ * The budget is typed by the owner from the official app and saved in
+ * league settings (2026-10-08); a swap may also spend what its sale pays.
+ * A `max` in the URL still overrides it as a plain price ceiling. Nothing on
+ * this page derives a budget. */
 
 const BASES: { value: PriceBasis; label: string }[] = [
   { value: "marketValue", label: "Market value" },
@@ -71,6 +73,47 @@ function useTransferQuery() {
   return { query, position, anyPrice, update };
 }
 
+/** The saved budget: prefilled from league settings, saved on blur, and
+ * every transfer list refetched with it. */
+function BudgetField() {
+  const queryClient = useQueryClient();
+  const { data: settings } = useQuery({ queryKey: ["league-settings"], queryFn: fetchLeagueSettings });
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = settings?.cashAvailable ?? null;
+  const shown = draft ?? (saved === null ? "" : String(saved / 1_000_000));
+
+  async function commit() {
+    if (draft === null || !settings) return;
+    const cash = draft.trim() === "" ? null : Math.round(Number(draft) * 1_000_000);
+    setDraft(null);
+    if (cash !== null && (!Number.isFinite(cash) || cash < 0)) return;
+    if (cash === saved) return;
+    const next = await saveLeagueSettings({
+      premiumFormationsEnabled: settings.premiumFormationsEnabled,
+      premiumBenchEnabled: settings.premiumBenchEnabled,
+      cashAvailable: cash,
+    });
+    queryClient.setQueryData(["league-settings"], next);
+    await queryClient.invalidateQueries({ queryKey: ["transfers"] });
+  }
+
+  return (
+    <label className="flex flex-col gap-xs field-label">
+      Budget (€M)
+      <input
+        aria-label="Budget in millions"
+        type="number"
+        min={0}
+        step={0.1}
+        className="field w-[120px] tabular"
+        value={shown}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => void commit()}
+      />
+    </label>
+  );
+}
+
 function Controls({
   query,
   update,
@@ -80,22 +123,7 @@ function Controls({
 }) {
   return (
     <div className="panel flex flex-wrap items-end gap-md px-md py-sm">
-      <label className="flex flex-col gap-xs field-label">
-        Price ceiling (€M)
-        <input
-          aria-label="Price ceiling in millions"
-          type="number"
-          min={0}
-          step={0.1}
-          className="field w-[120px] tabular"
-          value={query.max === null ? "" : query.max / 1_000_000}
-          onChange={(e) =>
-            update({
-              max: e.target.value === "" ? null : String(Math.round(Number(e.target.value) * 1_000_000)),
-            })
-          }
-        />
-      </label>
+      <BudgetField />
       <label className="flex flex-col gap-xs field-label">
         Against
         <select
@@ -127,8 +155,8 @@ function Controls({
         </select>
       </label>
       <p className={`${muted} max-w-[420px] pb-[6px]`}>
-        Type the figure you can spend, read off the official app. It is never derived — with no
-        ceiling, moves ignore price.
+        Type the cash you have, read off the official app; it is saved. A swap may also spend
+        what its sale pays. With no budget, moves ignore price.
       </p>
     </div>
   );

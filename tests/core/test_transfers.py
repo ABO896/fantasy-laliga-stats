@@ -19,6 +19,7 @@ from core.transfers import (
     MAX_GAP_COUNTED,
     SURPLUS_SHARE,
     PlayerInput,
+    affordable_move,
     assess_freshness,
     assess_player,
     bargains,
@@ -497,3 +498,36 @@ def test_a_good_backup_goalkeeper_is_not_worth_buying_over_an_outfield_upgrade()
 
 def test_availability_factor_is_shared_with_power():
     assert AVAILABILITY_FACTOR is an.AVAILABILITY_FACTOR
+
+
+# --- the owner's saved budget -------------------------------------------------------
+
+
+def test_a_swap_counts_the_sale_toward_the_buy():
+    sell = assess_player(_p(1, mv=15_000_000), fixture_outlook(None, 3), 3, CPP)
+    assert affordable_move(20_000_000, sell, cash=6_000_000) is True
+    assert affordable_move(22_000_000, sell, cash=6_000_000) is False
+
+
+def test_an_add_needs_the_cash_and_no_budget_means_no_limit():
+    assert affordable_move(20_000_000, None, cash=6_000_000) is False
+    assert affordable_move(6_000_000, None, cash=6_000_000) is True
+    assert affordable_move(90_000_000, None, cash=None) is True
+
+
+def test_a_zero_budget_still_allows_a_swap_the_sale_pays_for():
+    sell = assess_player(_p(1, mv=5_000_000), fixture_outlook(None, 3), 3, CPP)
+    assert affordable_move(5_000_000, sell, cash=0) is True
+    assert affordable_move(5_000_001, sell, cash=0) is False
+
+
+def test_suggestions_keep_within_the_budget_counting_the_sale():
+    squad = _xi()
+    owned = [_p(m.player_id, m.position, mv=4_000_000, ppg=3.0) for m in squad]
+    pricey = _p(100, "DEL", mv=50_000_000, ppg=9.0)
+    reachable = _p(101, "DEL", mv=9_000_000, ppg=7.0)  # 4M sale + 5M cash
+    moves = suggest_moves(squad, _assess([*owned, pricey, reachable]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3, cash=5_000_000)
+    assert moves
+    assert all(m.buy.player_id != 100 for m in moves)
+    assert moves[0].buy.player_id == 101

@@ -6,7 +6,7 @@ it into something the owner would have to mentally translate.
 """
 
 from fastapi import APIRouter
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from api.deps import SessionDep
 from storage.repository import get_league_settings, set_league_settings
@@ -21,12 +21,16 @@ class LeagueSettingsRequest(BaseModel):
 
     premiumFormationsEnabled: bool
     premiumBenchEnabled: bool
+    #: Optional, unlike the flags: absent leaves the saved budget as it is,
+    #: `null` clears it.
+    cashAvailable: int | None = Field(default=None, ge=0)
 
 
 def _serialize(settings) -> dict:
     return {
         "premiumFormationsEnabled": settings.premium_formations_enabled,
         "premiumBenchEnabled": settings.premium_bench_enabled,
+        "cashAvailable": settings.cash_available,
     }
 
 
@@ -42,5 +46,10 @@ def update_league_settings(payload: LeagueSettingsRequest, session: SessionDep):
             session,
             premium_formations_enabled=payload.premiumFormationsEnabled,
             premium_bench_enabled=payload.premiumBenchEnabled,
+            **(
+                {"cash_available": payload.cashAvailable}
+                if "cashAvailable" in payload.model_fields_set
+                else {}
+            ),
         )
     )

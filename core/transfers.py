@@ -371,6 +371,18 @@ def affordable(a: Assessment, ceiling: Ceiling | None) -> bool:
     return price is not None and price <= limit
 
 
+def affordable_move(buy_price: int | None, sell: Assessment | None, cash: int | None) -> bool:
+    """Can the owner pay for this move? Selling to the market pays market
+    value straight away, so a swap may spend the sale too. With no saved
+    budget (`cash is None`) there is no limit; a buy whose price is unknown
+    can't be shown affordable under one."""
+    if cash is None:
+        return True
+    if buy_price is None:
+        return False
+    return buy_price <= cash + (sell.player.market_value if sell else 0)
+
+
 # --- TRANSFER-02: legality --------------------------------------------------------------
 
 
@@ -686,6 +698,7 @@ def suggest_moves(
     freshness: Freshness,
     jornadas: int,
     limit: int = 10,
+    cash: int | None = None,
 ) -> list[Move]:
     """Ranked sell → buy suggestions, plus adds while the squad cannot yet
     field a full XI (an add must start).
@@ -695,7 +708,9 @@ def suggest_moves(
     predicted 7-day market move of the two players at the rules' cash per
     point. Efficiency, fixtures and the valuation gap are shown as the
     reasoning; the owner's ceiling is the only money constraint (TRANSFER-01
-    — no derived budget). Every move passes `check_move` (TRANSFER-02).
+    — no derived budget). `cash`, the owner's saved budget, limits each move
+    to what it plus the sale can pay for, and is spent move by move. Every
+    move passes `check_move` (TRANSFER-02).
 
     Moves are chosen greedily and applied one after another, so each is
     valued against the squad the previous ones leave, and a player appears
@@ -712,6 +727,7 @@ def suggest_moves(
     squad = list(members)
     touched: set[int] = set()
     moves: list[Move] = []
+    remaining = cash
     while len(moves) < limit:
         rows = [(m.player_id, m.position, er(m.player_id)) for m in squad]
         base, _ = best_xi(rows, rules)
@@ -743,6 +759,8 @@ def suggest_moves(
                 gain = xi_delta * jornadas + buy.value_term - (sell.value_term if sell else 0.0)
                 if gain <= MIN_GAIN or (best is not None and gain <= best[0]):
                     continue
+                if not affordable_move(buy.player.market_value, sell, remaining):
+                    continue
                 candidate = _engine_member(buy, price_on(buy, price_basis) or 0)
                 verdict = check_move(squad, sell.player_id if sell else None, candidate, rules)
                 if verdict.allowed:
@@ -758,6 +776,8 @@ def suggest_moves(
             verdict.resulting.feasible_formations,
         ))
         squad = [m for m in squad if sell is None or m.player_id != sell.player_id] + [candidate]
+        if remaining is not None:
+            remaining += (sell.player.market_value if sell else 0) - buy.player.market_value
         touched |= {buy.player_id} | ({sell.player_id} if sell else set())
     return moves
 

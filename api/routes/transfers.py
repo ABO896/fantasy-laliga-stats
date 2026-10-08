@@ -16,6 +16,7 @@ from api.deps import SessionDep, SettingsDep, resolve_league_context
 from core import transfers as tr
 from core.inputs import PlayerInputs
 from core.verdict import Verdict
+from storage.repository import get_league_settings
 from storage.transfers import TransferContext, build_context
 from storage.verdict import live_verdicts
 
@@ -113,8 +114,10 @@ def _freshness(ctx: TransferContext) -> dict:
     }
 
 
-def _envelope(ctx: TransferContext, ceiling: tr.Ceiling | None) -> dict:
+def _envelope(ctx: TransferContext, ceiling: tr.Ceiling | None,
+              budget: int | None = None) -> dict:
     return {
+        "budget": {"cash": budget, "source": "settings"} if budget is not None else None,
         "serverTime": datetime.now(UTC).isoformat(),
         "asOf": ctx.as_of,
         "jornadas": {
@@ -128,8 +131,17 @@ def _envelope(ctx: TransferContext, ceiling: tr.Ceiling | None) -> dict:
     }
 
 
-def _ceiling(max_price: int | None, basis: str) -> tr.Ceiling | None:
-    return (max_price, basis) if max_price is not None else None
+def _saved_budget(session) -> int | None:
+    return get_league_settings(session).cash_available
+
+
+def _ceiling(max_price: int | None, basis: str, session=None) -> tr.Ceiling | None:
+    """An explicit `max` wins; otherwise the owner's saved budget, on the same
+    `basis`; otherwise no ceiling."""
+    if max_price is not None:
+        return (max_price, basis)
+    saved = _saved_budget(session) if session is not None else None
+    return (saved, basis) if saved is not None else None
 
 
 def _label(vmap: dict[int, Verdict], player_id: int) -> str:
@@ -164,15 +176,18 @@ def suggestions(
     """TRANSFER-01…04: ranked sell → buy moves (and adds for free slots),
     each legal by the squad-rules engine, with its signals and confidence."""
     ctx, rules = _context(session, settings, n)
+    # An explicit `max` caps each buy's price (BROWSE-05); without one, the
+    # saved budget limits each move, counting what its sale pays.
     ceiling = _ceiling(max, basis)
+    budget = _saved_budget(session) if max is None else None
     live, vmap = live_verdicts(session)
     moves = tr.suggest_moves(ctx.members, ctx.assessments, rules, ceiling, ctx.freshness,
-                             ctx.jornadas, limit=limit)
+                             ctx.jornadas, limit=limit, cash=budget)
     owned = {m.player_id for m in ctx.members}
     unassessed = [m.name for m in ctx.members if m.player_id not in ctx.assessments
                   or ctx.assessments[m.player_id].hold_value is None]
     return {
-        **_envelope(ctx, ceiling),
+        **_envelope(ctx, ceiling, budget),
         "squadSize": len(ctx.members),
         "maxSquadSize": rules.max_squad_size,
         "unassessedMembers": unassessed,
@@ -215,7 +230,7 @@ def bargains(
 ):
     """MODEL-05's bargains view: expected return high against price."""
     ctx, _ = _context(session, settings, n)
-    ceiling = _ceiling(max, basis)
+    ceiling = _ceiling(max, basis, session)
     live, vmap = live_verdicts(session)
     owned = {m.player_id for m in ctx.members}
     rows = tr.bargains(ctx.assessments, ceiling, affordableOnly and ceiling is not None,
@@ -250,7 +265,7 @@ def best(
     Affordable-only by default — which needs a ceiling; without one the
     response says so (`ceilingMissing`) and shows everyone."""
     ctx, _ = _context(session, settings, n)
-    ceiling = _ceiling(max, basis)
+    ceiling = _ceiling(max, basis, session)
     live, vmap = live_verdicts(session)
     applied = affordableOnly and ceiling is not None
     owned = {m.player_id for m in ctx.members}
