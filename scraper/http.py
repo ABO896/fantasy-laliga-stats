@@ -20,10 +20,10 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from core.config import Settings, get_settings
 from scraper.errors import (
     ScrapeBlocked,
-    blocked_message,
     ScrapeNetworkError,
     ScrapeNotPublished,
     ScrapeStructureChanged,
+    blocked_message,
     classify_response,
 )
 

@@ -39,10 +39,12 @@ from core.config import Settings, get_settings
 from core.parsing import normalize_availability
 from scraper.errors import (
     ScrapeBlocked,
-    blocked_message as _blocked_message,
     ScrapeNetworkError,
     ScrapeStructureChanged,
     classify_response,
+)
+from scraper.errors import (
+    blocked_message as _blocked_message,
 )
 from scraper.sources.flight import _FLIGHT_REF_PREFIX_RE, _NEXT_F_PUSH_RE, find_key
 
