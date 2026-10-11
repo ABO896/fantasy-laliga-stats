@@ -141,3 +141,19 @@ def test_fit_all_returns_every_position():
              for c in cases]
     k = bt.fit_all(cases, cases)
     assert set(k.rate_only) == set(k.with_starter) == set(k.fixture) == set(bt.POSITIONS)
+
+
+def test_paired_bootstrap_finds_a_real_improvement_and_not_a_null_one():
+    from core import xp_backtest as bt
+
+    cases = [bt.Case(season=2025, week=w, player_id=p, position="MED", actual=(p + w) % 7,
+                     history=[], prior_season_mean=None)
+             for p in range(40) for w in range(10)]
+    truth = {id(c): c.actual for c in cases}
+    good = lambda c: truth[id(c)] + 0.5  # noqa: E731
+    bad = lambda c: truth[id(c)] + 2.0  # noqa: E731
+    point, lo, hi = bt.paired_bootstrap_rmse_diff(cases, bad, good, resamples=300)
+    assert point == pytest.approx(1.5)
+    assert lo > 0
+    point, lo, hi = bt.paired_bootstrap_rmse_diff(cases, good, good, resamples=300)
+    assert point == 0 and lo <= 0 <= hi
