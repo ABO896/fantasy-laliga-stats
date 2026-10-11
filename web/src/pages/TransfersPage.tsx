@@ -256,9 +256,14 @@ function SuggestedMoves({ query }: { query: TransferQuery }) {
 }
 
 function Bargains({ query }: { query: TransferQuery }) {
-  const affordableOnly = query.max !== null;
+  // An explicit URL ceiling, or else the saved budget (which the server
+  // applies as the ceiling when no `max` is sent).
+  const { data: settings } = useQuery({ queryKey: ["league-settings"], queryFn: fetchLeagueSettings });
+  const budgetSaved = settings?.cashAvailable != null;
+  const affordableOnly = query.max !== null || budgetSaved;
+  const limitWord = query.max !== null ? "ceiling" : "budget";
   const { data, isLoading, isError } = useQuery({
-    queryKey: ["transfers", "bargains", query],
+    queryKey: ["transfers", "bargains", query, affordableOnly],
     queryFn: () => fetchBargains(query, affordableOnly),
   });
   return (
@@ -268,7 +273,7 @@ function Bargains({ query }: { query: TransferQuery }) {
       </h3>
       <p className={muted}>
         Top-quarter expected return for their position, priced below what that return usually
-        costs.{affordableOnly ? " Within your ceiling." : ""}
+        costs.{affordableOnly ? ` Within your ${limitWord}.` : ""}
       </p>
       {isLoading && <p className={muted}>Loading bargains…</p>}
       {isError && <p className="state-error">Couldn't load bargains.</p>}

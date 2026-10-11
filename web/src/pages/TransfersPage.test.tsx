@@ -200,6 +200,14 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
     );
   });
 
+  it("bargains keep within the saved budget with no ceiling in the URL", async () => {
+    renderPage("/transfers");
+    await vi.waitFor(() =>
+      expect(fetchBargains).toHaveBeenLastCalledWith({ n: 3, max: null, basis: "marketValue" }, true),
+    );
+    expect(await screen.findByText(/Within your budget/)).toBeInTheDocument();
+  });
+
   it("clearing the budget saves null", async () => {
     renderPage();
     const input = await screen.findByLabelText("Budget in millions");
