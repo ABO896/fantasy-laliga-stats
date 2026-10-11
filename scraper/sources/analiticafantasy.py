@@ -152,9 +152,13 @@ def parse_page(html: str) -> list[dict]:
     """
     players = _extract_initial_players(html)
     if not players:
-        raise ValueError(
+        # A classified failure, not a bare ValueError: the refresh then
+        # fails only the market dataset, keeps the page for diagnosis, and
+        # still runs every other dataset (2026-10-11).
+        raise ScrapeStructureChanged(
             "No initialPlayers JSON found in the fetched page — the "
-            "site's structure may have changed."
+            "site's structure may have changed.",
+            html=html,
         )
 
     records = []
