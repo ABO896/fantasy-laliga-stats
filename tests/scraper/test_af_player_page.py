@@ -141,3 +141,16 @@ def test_a_later_stats_row_without_points_is_malformed():
 
     with pytest.raises(ValueError, match="malformed player page"):
         parse_player_page(html)
+
+
+def test_the_2026_10_11_page_with_a_text_row_parses():
+    """Deossa's live page of 2026-10-11, which failed with 'no
+    marketHistory in player page' (a text row packed ahead of it)."""
+    from pathlib import Path
+
+    from scraper.sources.af_player_page import parse_player_page
+
+    html = (Path(__file__).resolve().parents[1] / "fixtures"
+            / "player-page-2026-10-11-text-row.html").read_text(encoding="utf-8")
+    page = parse_player_page(html)
+    assert len(page.market) > 30

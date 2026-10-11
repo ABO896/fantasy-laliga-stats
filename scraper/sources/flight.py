@@ -23,20 +23,45 @@ from bs4 import BeautifulSoup
 
 _NEXT_F_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*$", re.S)
 _FLIGHT_REF_PREFIX_RE = re.compile(r"^[0-9a-fA-F]+:(.*)$", re.S)
-#: A row boundary inside one pushed payload: a newline followed by the next
-#: row's hex id. Since 2026-10-11 the site packs several rows into one push
-#: (`94:"…"\n95:I[…]\n93:{…}`); a JSON string can't hold a raw newline, so
-#: this never splits inside a JSON row.
-_ROW_BOUNDARY_RE = re.compile(r"\n(?=[0-9a-fA-F]+:)")
+#: A row's start inside one pushed payload: its hexadecimal id and a colon.
+_ROW_ID_RE = re.compile(rb"([0-9a-fA-F]+):")
+#: A text row's header: `T`, its length in UTF-8 *bytes* as hex, a comma.
+_TEXT_ROW_RE = re.compile(rb"T([0-9a-fA-F]+),")
 
 
 def flight_rows(payload: str) -> list[str]:
-    """The rows one pushed payload carries, each with its `id:` prefix
-    removed. A payload with no prefix is one row as-is."""
-    rows = []
-    for row in _ROW_BOUNDARY_RE.split(payload):
-        ref_match = _FLIGHT_REF_PREFIX_RE.match(row)
-        rows.append(ref_match.group(1) if ref_match else row)
+    """The rows one pushed payload carries, each without its `id:` prefix.
+
+    Since 2026-10-11 the site packs several rows into one push. Most rows
+    end at a newline (`94:"…"\n93:{…}\n`), but a text row
+    (`id:T<hex byte length>,<text>`) is length-prefixed and has no newline —
+    the next row follows straight after it — so rows are read the way the
+    format defines them, not split on newlines. A payload that doesn't open
+    with an id (the tail of a row split across pushes) is one row as-is.
+    """
+    data = payload.encode("utf-8")
+    rows: list[str] = []
+    i = 0
+    while i < len(data):
+        if data[i : i + 1] == b"\n":
+            i += 1
+            continue
+        row_id = _ROW_ID_RE.match(data, i)
+        if row_id is None:
+            rows.append(data[i:].decode("utf-8", errors="replace").rstrip("\n"))
+            break
+        i = row_id.end()
+        text = _TEXT_ROW_RE.match(data, i)
+        if text is not None:
+            size = int(text.group(1), 16)
+            start = text.end()
+            rows.append(data[start : start + size].decode("utf-8", errors="replace"))
+            i = start + size
+            continue
+        end = data.find(b"\n", i)
+        end = len(data) if end < 0 else end
+        rows.append(data[i:end].decode("utf-8", errors="replace"))
+        i = end + 1
     return rows
 
 
