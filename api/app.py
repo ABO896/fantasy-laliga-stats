@@ -5,8 +5,10 @@ Binds to loopback only by default (`Settings.api_host`, default
 and a wildcard bind would expose the dataset to anyone on the same network.
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from sqlalchemy.exc import OperationalError
 
 from api.routes import (
     analytics,
@@ -26,6 +28,8 @@ from api.routes import (
     watchlist,
 )
 from core.config import get_settings
+from storage.db import get_engine
+from storage.schema import FIX, schema_status
 
 app = FastAPI(title="Fantasy LaLiga Stats")
 
@@ -45,6 +49,16 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+@app.exception_handler(OperationalError)
+async def schema_behind(request: Request, exc: OperationalError):
+    """A query failing on a database behind the code answers 503 with the
+    fix, not a bare 500 — the UI shows `detail`. Any other database error
+    stays a 500."""
+    if not schema_status(get_engine()).up_to_date:
+        return JSONResponse(status_code=503, content={"detail": FIX})
+    return JSONResponse(status_code=500, content={"detail": "Internal Server Error"})
+
 
 app.include_router(meta.router, prefix="/api")
 app.include_router(players.router, prefix="/api")

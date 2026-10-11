@@ -23,10 +23,51 @@ from bs4 import BeautifulSoup
 
 _NEXT_F_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*$", re.S)
 _FLIGHT_REF_PREFIX_RE = re.compile(r"^[0-9a-fA-F]+:(.*)$", re.S)
+#: A row's start inside one pushed payload: its hexadecimal id and a colon.
+_ROW_ID_RE = re.compile(rb"([0-9a-fA-F]+):")
+#: A text row's header: `T`, its length in UTF-8 *bytes* as hex, a comma.
+_TEXT_ROW_RE = re.compile(rb"T([0-9a-fA-F]+),")
+
+
+def flight_rows(payload: str) -> list[str]:
+    """The rows one pushed payload carries, each without its `id:` prefix.
+
+    Since 2026-10-11 the site packs several rows into one push. Most rows
+    end at a newline (`94:"…"\n93:{…}\n`), but a text row
+    (`id:T<hex byte length>,<text>`) is length-prefixed and has no newline —
+    the next row follows straight after it — so rows are read the way the
+    format defines them, not split on newlines. A payload that doesn't open
+    with an id (the tail of a row split across pushes) is one row as-is.
+    """
+    data = payload.encode("utf-8")
+    rows: list[str] = []
+    i = 0
+    while i < len(data):
+        if data[i : i + 1] == b"\n":
+            i += 1
+            continue
+        row_id = _ROW_ID_RE.match(data, i)
+        if row_id is None:
+            rows.append(data[i:].decode("utf-8", errors="replace").rstrip("\n"))
+            break
+        i = row_id.end()
+        text = _TEXT_ROW_RE.match(data, i)
+        if text is not None:
+            size = int(text.group(1), 16)
+            start = text.end()
+            rows.append(data[start : start + size].decode("utf-8", errors="replace"))
+            i = start + size
+            continue
+        end = data.find(b"\n", i)
+        end = len(data) if end < 0 else end
+        rows.append(data[i:end].decode("utf-8", errors="replace"))
+        i = end + 1
+    return rows
 
 
 def iter_flight_chunks(html: str, must_contain: str | None = None) -> Iterator[Any]:
-    """Yield each decoded flight chunk in document order.
+    """Yield each decoded flight row in document order — every JSON row of
+    every pushed payload (a payload may pack several; see `flight_rows`).
 
     `must_contain` is a cheap textual pre-filter on the raw script text —
     skipping chunks that cannot hold the wanted key avoids parsing
@@ -44,15 +85,20 @@ def iter_flight_chunks(html: str, must_contain: str | None = None) -> Iterator[A
         if not match:
             continue
         try:
-            outer = json.loads(match.group(1))
-            payload_str = outer[1]
-            ref_match = _FLIGHT_REF_PREFIX_RE.match(payload_str)
-            inner = ref_match.group(1) if ref_match else payload_str
-            yield json.loads(inner)
+            payload_str = json.loads(match.group(1))[1]
         except (json.JSONDecodeError, IndexError, TypeError):
-            # A chunk that isn't JSON, or isn't shaped like a flight
-            # payload, is ordinary — the page has many. Skip it.
             continue
+        if not isinstance(payload_str, str):
+            continue
+        for row in flight_rows(payload_str):
+            if must_contain is not None and must_contain not in row:
+                continue
+            try:
+                yield json.loads(row)
+            except json.JSONDecodeError:
+                # A row that isn't JSON (`I[…]` module refs, text rows) is
+                # ordinary — the page has many. Skip it.
+                continue
 
 
 def find_key(obj: Any, key: str) -> Any | None:

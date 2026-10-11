@@ -36,6 +36,7 @@ function health(newest: ScrapeRunDto): HealthResponse {
     playerPages: { players: 0, complete: 0, withGaps: 0, withMatchGaps: 0, oldestLastDay: null },
     suggestComplete: false,
     nextLock: null,
+    schema: { current: "0019", head: "0019", upToDate: true },
   };
 }
 

@@ -83,6 +83,7 @@ from storage.repository import (
     upsert_season_stats,
     weeks_to_refetch,
 )
+from storage.schema import FIX, schema_status
 
 #: Refresh modes. `quick` is the daily refresh as it always was; `mine` adds
 #: the player pages of the squad and watchlist; `complete` adds every due
@@ -668,7 +669,8 @@ def main(argv: list[str] | None = None) -> int:
 
     No flag runs the quick refresh; `--mine` adds the squad and watchlist
     player pages, `--full` every due player page (mutually exclusive).
-    Returns 2, starting nothing, while another refresh is running."""
+    Returns 2, starting nothing, while another refresh is running, and 3
+    while the database is behind the code."""
     parser = argparse.ArgumentParser(prog="python -m scraper.run")
     group = parser.add_mutually_exclusive_group()
     group.add_argument(
@@ -681,6 +683,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.set_defaults(mode="quick")
     args = parser.parse_args(argv)
+
+    status = schema_status(get_engine())
+    if not status.up_to_date:
+        print(f"{FIX} (database at {status.current}, code needs {status.head})")
+        return 3
 
     # The same single-flight guard as `POST /api/scrape/trigger`, so a
     # terminal refresh cannot race one started from the app.

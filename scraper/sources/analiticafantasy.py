@@ -26,11 +26,9 @@ string) so the multi-page contract stays available if a future source, or
 a structural change to this one, ever requires real pagination again.
 """
 
-import json
 import random
 import time
 
-from bs4 import BeautifulSoup
 from playwright.sync_api import Error as PlaywrightError
 from playwright.sync_api import sync_playwright
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
@@ -46,7 +44,7 @@ from scraper.errors import (
 from scraper.errors import (
     blocked_message as _blocked_message,
 )
-from scraper.sources.flight import _FLIGHT_REF_PREFIX_RE, _NEXT_F_PUSH_RE, find_key
+from scraper.sources.flight import find_key, iter_flight_chunks
 
 # The site's `positionId` -> this project's normalized position enum.
 # `positionId == 5` is a club coach, not a fantasy player — verified by
@@ -136,28 +134,10 @@ def _extract_initial_players(html: str) -> dict[str, dict]:
     next opponent) for the *entire* roster, not just the rendered
     `<table>`'s current page.
     """
-    soup = BeautifulSoup(html, "lxml")
-    for script in soup.find_all("script"):
-        text = script.string
-        if not text or "self.__next_f.push(" not in text or "initialPlayers" not in text:
-            continue
-
-        match = _NEXT_F_PUSH_RE.search(text.strip())
-        if not match:
-            continue
-        try:
-            outer = json.loads(match.group(1))
-            payload_str = outer[1]
-            ref_match = _FLIGHT_REF_PREFIX_RE.match(payload_str)
-            inner = ref_match.group(1) if ref_match else payload_str
-            data = json.loads(inner)
-        except (json.JSONDecodeError, IndexError, TypeError):
-            continue
-
+    for data in iter_flight_chunks(html, must_contain="initialPlayers"):
         players = find_key(data, "initialPlayers")
         if players:
             return {p["slug"]: p for p in players if p.get("slug")}
-
     return {}
 
 
@@ -172,9 +152,13 @@ def parse_page(html: str) -> list[dict]:
     """
     players = _extract_initial_players(html)
     if not players:
-        raise ValueError(
+        # A classified failure, not a bare ValueError: the refresh then
+        # fails only the market dataset, keeps the page for diagnosis, and
+        # still runs every other dataset (2026-10-11).
+        raise ScrapeStructureChanged(
             "No initialPlayers JSON found in the fetched page — the "
-            "site's structure may have changed."
+            "site's structure may have changed.",
+            html=html,
         )
 
     records = []

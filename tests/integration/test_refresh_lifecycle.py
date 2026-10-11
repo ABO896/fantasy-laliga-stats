@@ -151,3 +151,21 @@ def test_a_running_dataset_of_a_finished_run_is_closed(session):
     close_stale_runs(session, datetime.now(UTC))
     session.refresh(ds)
     assert ds.status == "failed"
+
+
+def test_an_unparseable_market_page_fails_only_the_market(engine, monkeypatch):
+    """2026-10-11: the site changed its page packing, parse_page raised a
+    bare ValueError, and the whole refresh aborted — jornada points,
+    predictions, fixtures and the models never ran. Now the market dataset
+    fails, the page is kept, and every other dataset still refreshes."""
+    set_engine(engine)
+    ran = []
+    for name in LATER_STEPS + ("ingest_player_pages",):
+        monkeypatch.setattr(run_mod, name, lambda *a, _n=name, **k: ran.append(_n))
+    page = "<html><title>Puja ideal</title><table></table>initialPlayers</html>"
+    with patch("scraper.run.fetch_pages", return_value=[page]):
+        result = run_mod.run_daily_refresh()
+
+    assert result.status == "failed"
+    assert "ScrapeStructureChanged" in result.validation_errors
+    assert "ingest_jornada_points" in ran and "run_expected_points" in ran

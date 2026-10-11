@@ -100,3 +100,16 @@ def test_parse_page_reads_a_hexadecimal_flight_chunk_id():
     records = parse_page(html)
 
     assert len(records) == 342
+
+
+def test_the_packed_2026_10_11_page_parses():
+    """The live page of 2026-10-11 (several flight rows per push) — the
+    capture that failed with 'No initialPlayers JSON found'."""
+    from pathlib import Path
+
+    from scraper.sources.analiticafantasy import parse_page
+
+    html = (Path(__file__).resolve().parents[1] / "fixtures"
+            / "puja-ideal-2026-10-11-packed.html").read_text(encoding="utf-8")
+    records = parse_page(html)
+    assert len(records) > 500

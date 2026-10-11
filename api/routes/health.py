@@ -50,6 +50,7 @@ from storage.repository import (
     latest_dataset_runs,
     start_run,
 )
+from storage.schema import schema_status
 
 router = APIRouter()
 
@@ -155,7 +156,13 @@ def get_health(session: SessionDep):
         "playerPages": player_pages,
         "suggestComplete": suggest_complete,
         "nextLock": _next_lock(session, now, market_updated_at, settings.current_season_year),
+        "schema": _schema(session),
     }
+
+
+def _schema(session) -> dict:
+    status = schema_status(session.get_bind())
+    return {"current": status.current, "head": status.head, "upToDate": status.up_to_date}
 
 
 def _next_lock(session, now: datetime, market_updated_at: datetime, season: int) -> dict | None:

@@ -52,6 +52,8 @@ export interface HealthResponse {
    * expected points for it were recorded since the latest market update.
    * `null` with no fixture calendar. */
   nextLock: { jornada: number; locksAt: string; predictionsRecorded: boolean } | null;
+  /** The database's Alembic revision against the code's head. */
+  schema: { current: string | null; head: string; upToDate: boolean };
 }
 
 export function fetchHealth(): Promise<HealthResponse> {
