@@ -74,7 +74,11 @@ export default function StaleBanner() {
     >
       <div className="mx-auto flex max-w-[1600px] flex-col gap-sm px-md py-sm sm:flex-row sm:items-center sm:justify-between sm:gap-md sm:px-lg lg:px-xl">
         <div className="min-w-0">
-          {!data.isStale && lockSoon ? (
+          {!data.isStale && running ? (
+            <p className="text-sm font-semibold text-[color:var(--color-warning)]">
+              Refreshing the data…
+            </p>
+          ) : !data.isStale && lockSoon ? (
             <p className="text-sm font-semibold text-[color:var(--color-warning)]">{lockNote}</p>
           ) : (
             <>

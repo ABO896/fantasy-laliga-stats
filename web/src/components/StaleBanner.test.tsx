@@ -187,4 +187,21 @@ describe("StaleBanner", () => {
     await vi.waitFor(() => expect(fetchHealth).toHaveBeenCalled());
     expect(screen.queryByText(/locks/)).not.toBeInTheDocument();
   });
+
+  it("a refresh started on fresh data says it is refreshing, not that the data is stale", async () => {
+    vi.mocked(fetchHealth).mockResolvedValue(
+      buildHealth({
+        isStale: false,
+        recentRuns: [
+          {
+            id: 3, startedAt: "2026-10-08T10:00:00Z", finishedAt: null, status: "running",
+            rowCount: 0, validationErrors: [], mode: "complete", currentDataset: "player_pages",
+          },
+        ],
+      }),
+    );
+    renderWithClient(<StaleBanner />);
+    expect(await screen.findByText("Refreshing the data…")).toBeInTheDocument();
+    expect(screen.queryByText(/The market has moved/)).not.toBeInTheDocument();
+  });
 });
