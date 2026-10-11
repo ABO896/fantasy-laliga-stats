@@ -42,3 +42,26 @@ def test_find_records_reads_a_market_prediction_list():
 
 def test_missing_key_returns_none_rather_than_raising():
     assert find_records(_read("predicciones.html"), "noSuchKey", "x") is None
+
+
+def _push(payload: str) -> str:
+    import json
+
+    return f"<script>self.__next_f.push({json.dumps([1, payload])})</script>"
+
+
+def test_a_chunk_packing_several_rows_yields_each_row():
+    """Since 2026-10-11 the site packs several flight rows into one push,
+    newline-separated: `94:"…"\\n95:I[…]\\n93:{…}`. Decoding the chunk as one
+    JSON document failed, and the market scrape found no roster."""
+    from scraper.sources.flight import find_key, iter_flight_chunks
+
+    html = _push('94:"/_next/static/a.js"\n95:I[1,["$2"]]\n93:{"initialPlayers":[{"slug":"x"}]}')
+    chunks = list(iter_flight_chunks(html, must_contain="initialPlayers"))
+    assert find_key(chunks, "initialPlayers") == [{"slug": "x"}]
+
+
+def test_a_single_row_chunk_still_decodes():
+    from scraper.sources.flight import iter_flight_chunks
+
+    assert list(iter_flight_chunks(_push('1a:{"k":1}'))) == [{"k": 1}]

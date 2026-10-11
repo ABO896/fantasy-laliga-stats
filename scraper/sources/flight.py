@@ -23,10 +23,26 @@ from bs4 import BeautifulSoup
 
 _NEXT_F_PUSH_RE = re.compile(r"self\.__next_f\.push\((\[.*\])\)\s*$", re.S)
 _FLIGHT_REF_PREFIX_RE = re.compile(r"^[0-9a-fA-F]+:(.*)$", re.S)
+#: A row boundary inside one pushed payload: a newline followed by the next
+#: row's hex id. Since 2026-10-11 the site packs several rows into one push
+#: (`94:"…"\n95:I[…]\n93:{…}`); a JSON string can't hold a raw newline, so
+#: this never splits inside a JSON row.
+_ROW_BOUNDARY_RE = re.compile(r"\n(?=[0-9a-fA-F]+:)")
+
+
+def flight_rows(payload: str) -> list[str]:
+    """The rows one pushed payload carries, each with its `id:` prefix
+    removed. A payload with no prefix is one row as-is."""
+    rows = []
+    for row in _ROW_BOUNDARY_RE.split(payload):
+        ref_match = _FLIGHT_REF_PREFIX_RE.match(row)
+        rows.append(ref_match.group(1) if ref_match else row)
+    return rows
 
 
 def iter_flight_chunks(html: str, must_contain: str | None = None) -> Iterator[Any]:
-    """Yield each decoded flight chunk in document order.
+    """Yield each decoded flight row in document order — every JSON row of
+    every pushed payload (a payload may pack several; see `flight_rows`).
 
     `must_contain` is a cheap textual pre-filter on the raw script text —
     skipping chunks that cannot hold the wanted key avoids parsing
@@ -44,15 +60,20 @@ def iter_flight_chunks(html: str, must_contain: str | None = None) -> Iterator[A
         if not match:
             continue
         try:
-            outer = json.loads(match.group(1))
-            payload_str = outer[1]
-            ref_match = _FLIGHT_REF_PREFIX_RE.match(payload_str)
-            inner = ref_match.group(1) if ref_match else payload_str
-            yield json.loads(inner)
+            payload_str = json.loads(match.group(1))[1]
         except (json.JSONDecodeError, IndexError, TypeError):
-            # A chunk that isn't JSON, or isn't shaped like a flight
-            # payload, is ordinary — the page has many. Skip it.
             continue
+        if not isinstance(payload_str, str):
+            continue
+        for row in flight_rows(payload_str):
+            if must_contain is not None and must_contain not in row:
+                continue
+            try:
+                yield json.loads(row)
+            except json.JSONDecodeError:
+                # A row that isn't JSON (`I[…]` module refs, text rows) is
+                # ordinary — the page has many. Skip it.
+                continue
 
 
 def find_key(obj: Any, key: str) -> Any | None:
