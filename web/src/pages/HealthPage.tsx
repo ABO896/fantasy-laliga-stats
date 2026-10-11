@@ -1,6 +1,7 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { fetchHealth } from "../api-client/health";
 import RefreshControls from "../components/RefreshControls";
+import { useRefreshStatus } from "../hooks/useRefreshStatus";
 import ScrapeRunList from "../components/ScrapeRunList";
 import PageHeader from "../components/ui/PageHeader";
 
@@ -17,10 +18,9 @@ export default function HealthPage() {
   const { data } = useQuery({
     queryKey: ["health"],
     queryFn: fetchHealth,
-    refetchInterval: (query) => (query.state.data?.recentRuns[0]?.status === "running" ? 1000 : false),
   });
-
-  const newestIsRunning = data?.recentRuns[0]?.status === "running";
+  // Polls while a refresh runs (shared with the banner and controls).
+  const { running: newestIsRunning } = useRefreshStatus();
 
   async function handleTriggered() {
     await queryClient.invalidateQueries({ queryKey: ["health"] });

@@ -13,14 +13,15 @@ from datetime import datetime
 
 from sqlmodel import Session, func, select
 
-from core import market_model as mm
+from core import market_v2 as m2
 from core import transfers as tr
 from core.fixture_difficulty import FixtureView, fixture_difficulty, team_strength
 from core.rules import Rules
 from core.squad_rules import SquadMember
 from storage.db import as_utc
 from storage.expected_points import expected_points_map
-from storage.models import DatasetRun, MarketPrediction
+from storage.market_v2 import latest_outlooks
+from storage.models import DatasetRun
 from storage.our_models import compute_player_analytics
 from storage.repository import (
     get_fixtures,
@@ -61,22 +62,6 @@ class TransferContext:
     window: list[int]  # the jornada numbers the window covers, in kickoff order
     jornadas: int  # how many jornadas expected return is spread over
     expected_points_used: bool
-
-
-def _latest_predictions(session: Session) -> dict[int, MarketPrediction]:
-    made_on = session.exec(
-        select(func.max(MarketPrediction.made_on)).where(
-            MarketPrediction.model_version == mm.MODEL_VERSION
-        )
-    ).one()
-    if made_on is None:
-        return {}
-    rows = session.exec(
-        select(MarketPrediction)
-        .where(MarketPrediction.made_on == made_on)
-        .where(MarketPrediction.model_version == mm.MODEL_VERSION)
-    ).all()
-    return {r.player_id: r for r in rows}
 
 
 def last_successes(session: Session) -> dict[str, datetime | None]:
@@ -140,7 +125,8 @@ def build_context(
     )
     analytics = compute_player_analytics(session)
     rows = get_latest_players(session)
-    predictions = _latest_predictions(session)
+    # market-v2: each player's latest 7-day outlook (v1 retired 2026-10-08).
+    predictions = latest_outlooks(session)
     per_team, window, fixtures_available = _fixture_outlooks(session, season, jornadas, now)
     spread = len(window) if window else jornadas
 
@@ -165,10 +151,9 @@ def build_context(
             expected_points=(xp or {}).get(player.id),
             fair_value=valuation.fair_value if valuation else None,
             valuation_gap=valuation.gap if valuation else None,
-            economy=a.economy if a else None,
             power_score=power.score if power else None,
-            predicted_pct=prediction.predicted_pct if prediction else None,
-            prediction_confidence=prediction.confidence if prediction else None,
+            predicted_pct=prediction.expected_pct if prediction else None,
+            prediction_confidence=m2.confidence_for(prediction) if prediction else None,
         )
         outlook = tr.fixture_outlook(per_team.get(player.team), spread)
         assessments[player.id] = tr.assess_player(p, outlook, spread, rules.cash_per_point)

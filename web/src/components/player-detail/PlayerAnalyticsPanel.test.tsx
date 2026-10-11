@@ -59,7 +59,6 @@ function payload(overrides: Partial<PlayerAnalytics> = {}): PlayerAnalytics {
       marketValue: 20_000_000, fairValue: 30_000_000, gapPct: 50, reason: null,
       fit: { intercept: 14.2, slope: 0.43, n: 104, rSquared: 0.51, pooled: false },
     },
-    economy: { score: 91, basis: "percentile" },
     marketPrediction: null,
     reliability: {
       class: "Regular", pStart: 0.62, pPlay: 0.78, startShare: 0.6, playShare: 0.75,

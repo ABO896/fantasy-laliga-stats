@@ -310,7 +310,7 @@ def power_score(inputs: PowerInputs) -> PowerResult:
     return PowerResult(score, ppg, quality, avail, (a, c))
 
 
-# --- ANALYTICS-04 valuation and ANALYTICS-07 Economy Score ------------------------
+# --- ANALYTICS-04 valuation (ANALYTICS-07 Economy retired 2026-10-08) ------------
 
 
 @dataclass(frozen=True)
@@ -419,24 +419,4 @@ def valuations(data: Sequence[ValuationInput]) -> dict[int, ValuationResult]:
             continue
         fair = math.exp(fit.intercept + fit.slope * math.log(v.quality_ppg))
         out[v.player_id] = ValuationResult(round(fair), fair / v.market_value - 1, fit, None)
-    return out
-
-
-def economy_scores(results: dict[int, ValuationResult]) -> dict[int, float]:
-    """ANALYTICS-07 — the log-log valuation gap as a 0–100 percentile rank:
-    100 is the player priced furthest below what his production costs.
-    Economy adds price to Power and nothing else; it *is* ANALYTICS-04,
-    re-expressed."""
-    scored = {pid: math.log1p(r.gap) for pid, r in results.items() if r.gap is not None}
-    if not scored:
-        return {}
-    if len(scored) == 1:
-        return {pid: 50.0 for pid in scored}
-    ordered = sorted(scored.values())
-    n = len(ordered)
-    out = {}
-    for pid, value in scored.items():
-        below = sum(1 for x in ordered if x < value)
-        equal = sum(1 for x in ordered if x == value) - 1
-        out[pid] = 100 * (below + equal / 2) / (n - 1)
     return out

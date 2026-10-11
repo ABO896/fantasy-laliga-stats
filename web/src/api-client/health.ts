@@ -12,6 +12,8 @@ export interface ScrapeRunDto {
   rowCount: number;
   validationErrors: string[];
   mode: ScrapeMode;
+  /** The dataset a `running` run is on (e.g. `player_pages`), else `null`. */
+  currentDataset: string | null;
 }
 
 /** Coverage of the `player_pages` dataset (Task 5/T-05): how many tracked
@@ -46,6 +48,10 @@ export interface HealthResponse {
    * running — the last one is stale, missing entirely, or some player
    * has match gaps (`playerPages.withMatchGaps`). */
   suggestComplete: boolean;
+  /** The next jornada's lineup deadline (its first kickoff), and whether
+   * expected points for it were recorded since the latest market update.
+   * `null` with no fixture calendar. */
+  nextLock: { jornada: number; locksAt: string; predictionsRecorded: boolean } | null;
 }
 
 export function fetchHealth(): Promise<HealthResponse> {

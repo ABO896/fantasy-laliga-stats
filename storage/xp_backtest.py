@@ -19,6 +19,7 @@ from datetime import date
 from pathlib import Path
 
 from core import expected_points as xp
+from core import team_strength as ts
 from core import xp_backtest as bt
 from scraper.sources.football_data import parse_matches
 
@@ -122,6 +123,120 @@ def attach_market_inputs(data: dict, cases: list[bt.Case], info: dict) -> list[b
     return out
 
 
+def model_contexts(data: dict, season: int, info: dict) -> dict[tuple[str, int], xp.FixtureContext]:
+    """The opponent model's fixture context for every (team, trusted week),
+    each fitted only on matches played before that week's first match —
+    this season's and last season's, recency-weighted, as the live model."""
+    alignment = info["alignment"]
+    records = [*data["matches"].get(season - 1, []), *data["matches"].get(season, [])]
+    week_start: dict[int, date] = {}
+    for (_, week), m in alignment.items():
+        week_start[week] = min(week_start.get(week, m["match_date"]), m["match_date"])
+    out = {}
+    for week in info["trusted"]:
+        strengths = ts.fit(ts.from_records(records, week_start[week]))
+        for (team, w), m in alignment.items():
+            if w != week:
+                continue
+            goals, clean = ts.team_view(strengths, m["home_team"], m["away_team"], team)
+            home = team == m["home_team"]
+            out[(team, week)] = xp.FixtureContext(
+                opponent=m["away_team"] if home else m["home_team"], is_home=home,
+                team_goals=goals, clean_sheet=clean, odds_source="model",
+            )
+    return out
+
+
+def _gate_rows(label: str, cases: list[bt.Case], k: xp.Coefficients, kb: xp.Coefficients,
+               ctx: dict, with_starter: bool) -> tuple[list[str], list[bt.Case], list[bt.Case]]:
+    """Variant A (no opponent), B (opponent model, odds-fitted fixture
+    coefficients), B2 (opponent model, coefficients `kb` fitted on model
+    contexts) and C (odds) on the same cases: those in a trusted week whose
+    fixture had odds."""
+    same = [c for c in cases if (c.extra["team"], c.week) in ctx and c.fixture
+            and c.fixture.team_goals is not None]
+    with_model = [replace(c, fixture=ctx[(c.extra["team"], c.week)]) for c in same]
+    actual = [c.actual for c in same]
+    a = bt.model_predictor(bt.without_fixture(k), with_starter, False)
+    full = bt.model_predictor(k, with_starter, True)
+    full_b2 = bt.model_predictor(kb, with_starter, True)
+    lines = [f"\n**{label}**\n", "| variant | n | MAE | RMSE | Spearman |", "|---|---|---|---|---|",
+             _row("A — no opponent", bt.metrics([a(c) for c in same], actual)),
+             _row("B — opponent model", bt.metrics([full(c) for c in with_model], actual)),
+             _row("B2 — opponent model, own coefficients",
+                  bt.metrics([full_b2(c) for c in with_model], actual)),
+             _row("C — odds", bt.metrics([full(c) for c in same], actual))]
+    return lines, same, with_model
+
+
+def variants(data: dict) -> None:
+    """The opponent-model gate (2026-10-08): B ships as the no-odds fallback
+    only if the 95 % interval of RMSE_A − RMSE_B is above zero."""
+    c25, i25 = season_cases(data, 2025)
+    c26, i26 = season_cases(data, 2026)
+    c26 = attach_market_inputs(data, c26, i26)
+    ctx25, ctx26 = model_contexts(data, 2025, i25), model_contexts(data, 2026, i26)
+
+    train = [c for c in c25 if c.week <= 19]
+    rate = bt.fit_rate_only(train)
+    k25 = xp.Coefficients(rate, xp.WITH_STARTER, bt.fit_fixture(train, rate))
+    test25 = [c for c in c25 if c.week >= 20]
+    rate_all = bt.fit_rate_only(c25)
+    k26 = xp.Coefficients(rate_all, xp.WITH_STARTER, bt.fit_fixture(c25, rate_all))
+
+    # B2: the fixture coefficients refitted on model contexts, from the same
+    # training cases only (`fit_fixture` reads each case's `fixture`).
+    def on_model(cases, ctx):
+        return [replace(c, fixture=ctx.get((c.extra["team"], c.week))) for c in cases]
+
+    kb25 = replace(k25, fixture=bt.fit_fixture(on_model(train, ctx25), rate))
+    kb26 = replace(k26, fixture=bt.fit_fixture(on_model(c25, ctx25), rate_all))
+
+    out: list[str] = []
+    pooled_a: list[tuple[bt.Case, float]] = []
+    pooled_b: dict[int, float] = {}
+    pooled_c: dict[int, float] = {}
+    pooled_b2: dict[int, float] = {}
+    for label, cases, k, kb, ctx, starter in (
+        ("2025/26 weeks 20–38 (coefficients from weeks 1–19)", test25, k25, kb25, ctx25, False),
+        ("2026/27, form only (coefficients from 2025/26)", c26, k26, kb26, ctx26, False),
+        ("2026/27, form + starter (the live model's basis)", c26, k26, kb26, ctx26, True),
+    ):
+        lines, same, with_model = _gate_rows(label, cases, k, kb, ctx, starter)
+        out += lines
+        if starter and label.startswith("2026"):
+            continue  # pooled gate counts each case once
+        a = bt.model_predictor(bt.without_fixture(k), starter, False)
+        full = bt.model_predictor(k, starter, True)
+        full_b2 = bt.model_predictor(kb, starter, True)
+        for c, cm in zip(same, with_model, strict=True):
+            pooled_a.append((c, a(c)))
+            pooled_b[id(c)] = full(cm)
+            pooled_b2[id(c)] = full_b2(cm)
+            pooled_c[id(c)] = full(c)
+
+    cases = [c for c, _ in pooled_a]
+    pa = {id(c): v for c, v in pooled_a}
+    ab = bt.paired_bootstrap_rmse_diff(cases, lambda c: pa[id(c)], lambda c: pooled_b[id(c)])
+    ab2 = bt.paired_bootstrap_rmse_diff(cases, lambda c: pa[id(c)], lambda c: pooled_b2[id(c)])
+    ac = bt.paired_bootstrap_rmse_diff(cases, lambda c: pa[id(c)], lambda c: pooled_c[id(c)])
+    bc = bt.paired_bootstrap_rmse_diff(cases, lambda c: pooled_b2[id(c)], lambda c: pooled_c[id(c)])
+    out += [
+        f"\n**Gate — pooled out-of-sample cases (n={len(cases)}, "
+        f"{len({c.player_id for c in cases})} players)**\n",
+        f"- RMSE_A − RMSE_B = {ab[0]:+.4f} (95% CI {ab[1]:+.4f} … {ab[2]:+.4f})"
+        f" → {'PASS: the model helps' if ab[1] > 0 else 'FAIL: not shown to help'}",
+        f"- RMSE_A − RMSE_B2 = {ab2[0]:+.4f} (95% CI {ab2[1]:+.4f} … {ab2[2]:+.4f})"
+        f" → {'PASS: the model helps' if ab2[1] > 0 else 'FAIL: not shown to help'}",
+        f"- RMSE_B2 − RMSE_C = {bc[0]:+.4f} (95% CI {bc[1]:+.4f} … {bc[2]:+.4f})"
+        " — what the model gives up against real odds",
+        f"- RMSE_A − RMSE_C = {ac[0]:+.4f} (95% CI {ac[1]:+.4f} … {ac[2]:+.4f})"
+        " — what real odds add over no opponent at all",
+        "- Two variants were tried (B, then B2); read the intervals with that in mind.",
+    ]
+    print("\n".join(out))
+
+
 def _row(name: str, m: bt.Metrics) -> str:
     rho = f"{m.spearman:.3f}" if m.spearman is not None else "—"
     return f"| {name} | {m.n} | {m.mae:.3f} | {m.rmse:.3f} | {rho} |"
@@ -140,9 +255,14 @@ def main(argv: list[str] | None = None) -> None:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--db", default="data/fantasy.db")
     ap.add_argument("--fit", action="store_true", help="print full-data coefficients")
+    ap.add_argument("--variants", action="store_true",
+                    help="the opponent-model gate: no opponent vs model vs odds")
     args = ap.parse_args(argv)
 
     data = load(args.db, DEFAULT_CSVS)
+    if args.variants:
+        variants(data)
+        return
     c25, i25 = season_cases(data, 2025)
     c26, i26 = season_cases(data, 2026)
     c26 = attach_market_inputs(data, c26, i26)

@@ -25,6 +25,14 @@ vi.mock("../api-client/transfers", async () => {
   };
 });
 
+vi.mock("../api-client/league-settings", async () => {
+  const actual = await vi.importActual<typeof import("../api-client/league-settings")>(
+    "../api-client/league-settings",
+  );
+  return { ...actual, fetchLeagueSettings: vi.fn(), saveLeagueSettings: vi.fn() };
+});
+
+import { fetchLeagueSettings, saveLeagueSettings } from "../api-client/league-settings";
 import {
   fetchBargains,
   fetchBest,
@@ -48,6 +56,7 @@ function env(freshness: Freshness = FRESH): Envelope {
     asOf: "2026-09-27",
     jornadas: { requested: 3, window: [8, 9, 10], spreadOver: 3 },
     ceiling: null,
+    budget: null,
     expectedPointsUsed: false,
     freshness,
   };
@@ -57,7 +66,7 @@ function player(playerId: number, name: string, extra: Partial<TransferPlayer> =
   return {
     playerId, name, team: "Levante", position: "DEL", owned: false, marketValue: 4_600_000,
     availability: "available", starterProbability: 80, recentJornadas: 10, powerScore: 40, powerRank: null,
-    economyScore: 80, fairValue: 9_000_000, valuationGapPct: 95, predictedPct: 1.2,
+    fairValue: 9_000_000, valuationGapPct: 95, predictedPct: 1.2,
     predictionConfidence: "strong", expectedReturn: 5.2, expectedPoints: null,
     expectedPointsUsed: false, backwardPpg: 4.8, minutesFactor: 0.9, fixtureMultiplier: 1.1,
     fixtureDataAvailable: true,
@@ -130,6 +139,10 @@ function renderPage(url = "/transfers") {
 describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(fetchLeagueSettings).mockResolvedValue({
+      premiumFormationsEnabled: true, premiumBenchEnabled: false, cashAvailable: 6_500_000,
+    });
+    vi.mocked(saveLeagueSettings).mockImplementation(async (s) => s);
     vi.mocked(fetchSuggestions).mockResolvedValue(suggestions());
     vi.mocked(fetchBargains).mockResolvedValue(BARGAINS);
     vi.mocked(fetchBest).mockResolvedValue(best());
@@ -170,6 +183,42 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
     await screen.findByText("Pérez");
     expect(fetchSuggestions).toHaveBeenCalledWith({ n: 5, max: 5_000_000, basis: "ourIdealBid" });
     expect(fetchBargains).toHaveBeenCalledWith({ n: 5, max: 5_000_000, basis: "ourIdealBid" }, true);
+  });
+
+  it("prefills the budget from the saved settings and saves an edit on blur", async () => {
+    renderPage();
+    const input = await screen.findByLabelText("Budget in millions");
+    await vi.waitFor(() => expect(input).toHaveValue(6.5));
+
+    fireEvent.change(input, { target: { value: "8.25" } });
+    fireEvent.blur(input);
+
+    await vi.waitFor(() =>
+      expect(saveLeagueSettings).toHaveBeenCalledWith({
+        premiumFormationsEnabled: true, premiumBenchEnabled: false, cashAvailable: 8_250_000,
+      }),
+    );
+  });
+
+  it("bargains keep within the saved budget with no ceiling in the URL", async () => {
+    renderPage("/transfers");
+    await vi.waitFor(() =>
+      expect(fetchBargains).toHaveBeenLastCalledWith({ n: 3, max: null, basis: "marketValue" }, true),
+    );
+    expect(await screen.findByText(/Within your budget/)).toBeInTheDocument();
+  });
+
+  it("clearing the budget saves null", async () => {
+    renderPage();
+    const input = await screen.findByLabelText("Budget in millions");
+    await vi.waitFor(() => expect(input).toHaveValue(6.5));
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.blur(input);
+    await vi.waitFor(() =>
+      expect(saveLeagueSettings).toHaveBeenCalledWith(
+        expect.objectContaining({ cashAvailable: null }),
+      ),
+    );
   });
 
   it("lists bargains and our bids beside the source's, each bargain carrying its verdict chip", async () => {
@@ -214,8 +263,8 @@ describe("TransfersPage (TRANSFER-01…05, MODEL-05)", () => {
 });
 
 describe("transferParams", () => {
-  it("sends the basis only with a ceiling", () => {
-    expect(transferParams({ n: 3, max: null, basis: "maxBid" })).toBe("n=3");
+  it("always sends the basis, which the saved budget is applied on", () => {
+    expect(transferParams({ n: 3, max: null, basis: "maxBid" })).toBe("n=3&basis=maxBid");
     expect(transferParams({ n: 3, max: 1_000_000, basis: "maxBid" }, { position: "POR" })).toBe(
       "n=3&max=1000000&basis=maxBid&position=POR",
     );

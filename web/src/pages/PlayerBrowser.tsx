@@ -136,17 +136,17 @@ export default function PlayerBrowser() {
 
   // DETAIL-04. `playerIds` is undefined until the watchlist has loaded; the
   // star column and the sidebar filter are both omitted until then.
-  const watchlist = useWatchlist();
+  const { playerIds: watchedIds, toggle: toggleWatched, pending: watchPending } = useWatchlist();
   const watchlistActions = useMemo(
     () =>
-      watchlist.playerIds === undefined
+      watchedIds === undefined
         ? undefined
         : {
-            isWatched: (playerId: number) => watchlist.playerIds!.includes(playerId),
-            onToggle: (player: PlayerRow) => watchlist.toggle(player.playerId),
-            pending: watchlist.pending,
+            isWatched: (playerId: number) => watchedIds.includes(playerId),
+            onToggle: (player: PlayerRow) => toggleWatched(player.playerId),
+            pending: watchPending,
           },
-    [watchlist.playerIds, watchlist.toggle, watchlist.pending],
+    [watchedIds, toggleWatched, watchPending],
   );
 
   const columnFilters: ColumnFiltersState = useMemo(() => {
@@ -200,7 +200,6 @@ export default function PlayerBrowser() {
   // is a membership test against a separate list, not a property of a row,
   // so it has no column to hang a TanStack filter on. While the watchlist
   // is still unknown the filter is not applied (and not offered).
-  const watchedIds = watchlist.playerIds;
   const watchlistFiltering = filters.watchlistOnly === true && watchedIds !== undefined;
   const shownPlayers = watchlistFiltering
     ? players.filter((p) => watchedIds.includes(p.playerId))

@@ -151,7 +151,8 @@ def test_track_record_and_source_comparison(session):
     session.commit()
     refresh_market_predictions(session, today=date(2026, 9, 20), now=LATER)
 
-    record = track_record_payload(session)
+    # v1's history stays readable by name after its retirement.
+    record = track_record_payload(session, model_version="market-v1")
     assert record["ours"]["retroactive"]["scored"] == 2
     assert record["ours"]["retroactive"]["hits"] == 1  # a: fall ✓, b: rise ✗
     assert record["ours"]["live"]["scored"] == 0
@@ -159,13 +160,23 @@ def test_track_record_and_source_comparison(session):
     assert record["source"]["oursOnSamePlayers"] == {"scored": 2, "hits": 1, "hitRate": 0.5}
     assert record["days"][0]["madeOn"] == "2026-09-01"
 
+    # Divergence and the listing read market-v2's calls.
+    for pid, pct in [(a.id, -2.0), (b.id, 3.0)]:
+        session.add(MarketPrediction(
+            made_on=D1, player_id=pid, model_version="market-v2", predicted_pct=pct,
+            direction="fall" if pct < 0 else "rise", confidence="moderate",
+            inputs=json.dumps({"lower": pct - 4, "upper": pct + 4}),
+            generated_at=LATER, retroactive=False,
+        ))
+    session.commit()
     div = divergence_payload(session)
     assert div["asOf"] == "2026-09-01"
     assert div["disagree"] == 1 and div["agree"] == 1
     assert div["rows"][0]["playerId"] == b.id  # disagreements first
 
     listing = market_predictions_payload(session)
-    assert listing["madeOn"] == "2026-09-02"
+    assert listing["madeOn"] == "2026-09-01"
+    assert listing["modelVersion"] == "market-v2"
     assert len(listing["predictions"]) == 2
 
 
@@ -194,10 +205,7 @@ def test_analytics_scores_and_payload(session):
     scores = score_fields(result[players[6].id])
     assert scores["powerScore"] == _v2_score([6] * 12, "MED")  # shrunk, calibrated 6s
     assert scores["powerScore"] < 60.0
-    assert scores["economyScore"] is not None
-    # scores all 0s: the raw recent mean is 0, so he is gated out even though
-    # Power v2's shrinkage gives him a small positive quality_ppg.
-    assert score_fields(result[players[0].id])["economyScore"] is None
+    assert "economyScore" not in scores  # retired 2026-10-08
 
     payload = player_analytics_payload(session, players[6].id, [1, 7])
     assert payload["form"]["window"] == 5
@@ -212,6 +220,7 @@ def test_analytics_scores_and_payload(session):
     # Players scoring 0 every week (i % 7 == 0: p0, p7, p14) are gated out by
     # recent_avg despite their shrunk quality_ppg being positive.
     assert payload["valuation"]["fit"]["n"] == 17
+    assert "economy" not in payload
     assert [m["windowDays"] for m in payload["momentum"]] == [1, 7]
 
 

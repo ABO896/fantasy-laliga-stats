@@ -12,8 +12,8 @@ Built on Phase 10, not beside it:
   and by the chance of playing, and — once MODEL-02 lands — blends in
   expected points at `EXPECTED_POINTS_WEIGHT`. Without expected
   points it degrades to the backward-looking form, not to nothing.
-* **Bids** use our fair value (ANALYTICS-04) and our next-update prediction
-  (MODEL-01), never the source's bid numbers.
+* **Bids** use our fair value (ANALYTICS-04) and our 7-day price outlook
+  (market-v2), never the source's bid numbers.
 * **Legality** is `core.squad_rules`, untouched: a move is `evaluate_add` on
   the squad minus the sold player, plus an XI-feasibility check that
   `evaluate_add` deliberately does not make.
@@ -30,6 +30,7 @@ from datetime import datetime
 from core import analytics as an
 from core.fixture_difficulty import FixtureView, TeamFixture, upcoming_fixtures
 from core.freshness import _as_aware, is_stale, last_market_update
+from core.market_v2 import OUTLOOK_DAYS
 from core.rules import Rules, Violation
 from core.squad_rules import SquadMember, evaluate_add, evaluate_squad
 
@@ -120,10 +121,9 @@ class PlayerInput:
     expected_points: float | None  # MODEL-02, next jornada; None until it lands
     fair_value: int | None  # ANALYTICS-04
     valuation_gap: float | None  # ANALYTICS-04, fair/market − 1
-    economy: float | None  # ANALYTICS-07
     power_score: float | None  # ANALYTICS-06
-    predicted_pct: float | None  # MODEL-01, next update
-    prediction_confidence: str | None  # MODEL-01's own vocabulary
+    predicted_pct: float | None  # market-v2: expected % change over 7 days
+    prediction_confidence: str | None  # market-v2's strong | moderate | weak
 
 
 # --- MODEL-05: our bids ---------------------------------------------------------------
@@ -143,16 +143,20 @@ def _unavailable(status: str) -> bool:
 def compute_bids(p: PlayerInput) -> Bids:
     """Our ideal and maximum bid.
 
+    `predicted %` is market-v2's expected change over `OUTLOOK_DAYS` (7)
+    days, so one market update's share of it is `predicted % / 7`.
+
     * **Ideal** = the value we predict the player will have after the next
-      update: `mv · (1 + max(predicted %, 0)/100)`. A faller's ideal bid is
+      update: `mv · (1 + max(predicted %, 0)/100/7)`. A faller's ideal bid is
       market value — the official rules forbid bidding below it.
-    * **Maximum** = `mv · (1 + H · max(predicted %, 0)/100
+    * **Maximum** = `mv · (1 + H · max(predicted %, 0)/100/7
       + SURPLUS_SHARE · min(max(gap, 0), MAX_GAP_COUNTED))`, clamped between
       the ideal bid and `mv · (1 + MAX_BID_PREMIUM)`. No surplus for a player who is
       injured: his fair value describes a player who is playing.
     """
     mv = p.market_value
-    rise = max(p.predicted_pct or 0.0, 0.0) / 100
+    # market-v2 predicts 7 days ahead; a bid prices in one update's share.
+    rise = max(p.predicted_pct or 0.0, 0.0) / 100 / OUTLOOK_DAYS
     ideal = round(mv * (1 + rise))
     surplus = 0.0
     if p.valuation_gap is not None and not _unavailable(p.availability):
@@ -364,6 +368,18 @@ def affordable(a: Assessment, ceiling: Ceiling | None) -> bool:
     limit, basis = ceiling
     price = price_on(a, basis)
     return price is not None and price <= limit
+
+
+def affordable_move(buy_price: int | None, sell: Assessment | None, cash: int | None) -> bool:
+    """Can the owner pay for this move? Selling to the market pays market
+    value straight away, so a swap may spend the sale too. With no saved
+    budget (`cash is None`) there is no limit; a buy whose price is unknown
+    can't be shown affordable under one."""
+    if cash is None:
+        return True
+    if buy_price is None:
+        return False
+    return buy_price <= cash + (sell.player.market_value if sell else 0)
 
 
 # --- TRANSFER-02: legality --------------------------------------------------------------
@@ -586,10 +602,10 @@ def _signals(
             if pct is None:
                 return f"{a.name} no prediction"
             conf = f", {a.player.prediction_confidence}" if a.player.prediction_confidence else ""
-            return (f"{a.name} {pct:+.2f}% ({_fmt_eur(a.player.market_value * pct / 100)}"
+            return (f"{a.name} {pct:+.1f}% ({_fmt_eur(a.player.market_value * pct / 100)}"
                     f"{conf})")
 
-        text = "Next market update: " + move(buy) + (f"; {move(sell)}" if sell else "")
+        text = "Price over the next 7 days: " + move(buy) + (f"; {move(sell)}" if sell else "")
         out.append(Signal("value", text, buy.value_term - (sell.value_term if sell else 0.0)))
 
     if buy.efficiency is not None:
@@ -681,15 +697,19 @@ def suggest_moves(
     freshness: Freshness,
     jornadas: int,
     limit: int = 10,
+    cash: int | None = None,
 ) -> list[Move]:
-    """Ranked sell → buy suggestions, plus adds while the squad has free slots.
+    """Ranked sell → buy suggestions, plus adds while the squad cannot yet
+    field a full XI (an add must start).
 
     A move's gain is what it does to the **best XI** the squad can field
     (expected points per jornada × jornadas — only starters score), plus the
-    predicted next market move of the two players at the rules' cash per
+    predicted 7-day market move of the two players at the rules' cash per
     point. Efficiency, fixtures and the valuation gap are shown as the
     reasoning; the owner's ceiling is the only money constraint (TRANSFER-01
-    — no derived budget). Every move passes `check_move` (TRANSFER-02).
+    — no derived budget). `cash`, the owner's saved budget, limits each move
+    to what it plus the sale can pay for, and is spent move by move. Every
+    move passes `check_move` (TRANSFER-02).
 
     Moves are chosen greedily and applied one after another, so each is
     valued against the squad the previous ones leave, and a player appears
@@ -706,11 +726,18 @@ def suggest_moves(
     squad = list(members)
     touched: set[int] = set()
     moves: list[Move] = []
+    remaining = cash
     while len(moves) < limit:
         rows = [(m.player_id, m.position, er(m.player_id)) for m in squad]
         base, _ = best_xi(rows, rules)
-        # An add first: on a tie it beats a swap, because it sells nobody.
-        sells: list[Assessment | None] = [None] if len(squad) < rules.max_squad_size else []
+        # An add only while the squad cannot field a full XI, and only for a
+        # player who closes part of that gap and starts: once the XI is complete a better player
+        # comes in *for* someone, never beside him on the bench (owner,
+        # 2026-10-08). First in the list, so on a tie it beats a swap.
+        before = evaluate_squad(squad, rules)
+        sells: list[Assessment | None] = (
+            [None] if not before.can_field_xi and len(squad) < rules.max_squad_size else []
+        )
         sells += [
             assessments[m.player_id] for m in squad
             if m.player_id in assessments and m.player_id not in touched
@@ -723,13 +750,25 @@ def suggest_moves(
                     continue
                 total, starters = best_xi([*kept, (buy.player_id, buy.position,
                                                    buy.expected_return)], rules)
+                if sell is None and buy.player_id not in starters:
+                    continue
                 xi_delta = total - base
                 gain = xi_delta * jornadas + buy.value_term - (sell.value_term if sell else 0.0)
                 if gain <= MIN_GAIN or (best is not None and gain <= best[0]):
                     continue
+                if not affordable_move(buy.player.market_value, sell, remaining):
+                    continue
                 candidate = _engine_member(buy, price_on(buy, price_basis) or 0)
                 verdict = check_move(squad, sell.player_id if sell else None, candidate, rules)
-                if verdict.allowed:
+                # An add must close part of the XI's shortfall under *some*
+                # formation — not just the one `missing_for_xi` happens to
+                # route through (final review #1: with 4-4-2 and 4-5-1 tied,
+                # a MED add was refused and the only keeper was sold instead).
+                fills = sell is not None or (
+                    verdict.resulting.can_field_xi
+                    or _missing(verdict.resulting) < _missing(before)
+                )
+                if verdict.allowed and fills:
                     best = (gain, sell, buy, xi_delta, buy.player_id in starters, verdict,
                             candidate)
         if best is None:
@@ -742,6 +781,8 @@ def suggest_moves(
             verdict.resulting.feasible_formations,
         ))
         squad = [m for m in squad if sell is None or m.player_id != sell.player_id] + [candidate]
+        if remaining is not None:
+            remaining += (sell.player.market_value if sell else 0) - buy.player.market_value
         touched |= {buy.player_id} | ({sell.player_id} if sell else set())
     return moves
 

@@ -362,3 +362,43 @@ def model_predictor(
 def without_fixture(k: xp.Coefficients) -> xp.Coefficients:
     zero = {pos: (0.0, 0.0) for pos in POSITIONS}
     return replace(k, fixture=zero)
+
+
+# --- the opponent-model gate (2026-10-08) ---------------------------------------------
+
+
+def paired_bootstrap_rmse_diff(
+    cases: Sequence[Case],
+    pred_a: Callable[[Case], float],
+    pred_b: Callable[[Case], float],
+    resamples: int = 2000,
+    seed: int = 20261008,
+) -> tuple[float, float, float]:
+    """`RMSE_A − RMSE_B` on `cases`, with a 95 % interval from a bootstrap
+    that resamples *players* (all of a player's cases together), since one
+    player's weeks are not independent. Positive means B is better."""
+    import random
+
+    by_player: dict[int, list[tuple[float, float]]] = defaultdict(list)
+    for c in cases:
+        a, b = pred_a(c), pred_b(c)
+        by_player[c.player_id].append(((a - c.actual) ** 2, (b - c.actual) ** 2))
+    players = sorted(by_player)
+
+    def diff(sample: Sequence[int]) -> float:
+        sa = sb = n = 0.0
+        for pid in sample:
+            for ea, eb in by_player[pid]:
+                sa += ea
+                sb += eb
+                n += 1
+        return math.sqrt(sa / n) - math.sqrt(sb / n)
+
+    point = diff(players)
+    rng = random.Random(seed)
+    draws = sorted(
+        diff([rng.choice(players) for _ in players]) for _ in range(resamples)
+    )
+    lo = draws[int(0.025 * resamples)]
+    hi = draws[int(0.975 * resamples) - 1]
+    return point, lo, hi

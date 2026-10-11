@@ -1,4 +1,3 @@
-import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Link } from "react-router-dom";
 import {
@@ -6,11 +5,8 @@ import {
   fetchMarketPredictions,
   fetchTrackRecord,
   type MarketConfidence,
-  type MarketModelVersion,
   type MarketPredictionRow,
-  type RecordBucket,
   type TrackRecordResponse,
-  type V1TrackRecordResponse,
 } from "../../api-client/market-model";
 import { fetchVerdictValidation } from "../../api-client/verdict";
 import { formatEuroAbbreviated, formatPercent, formatShortDate } from "../../lib/format";
@@ -56,6 +52,11 @@ function PredictionList({ title, rows }: { title: string; rows: MarketPrediction
                   {r.marketValue === null ? "—" : formatEuroAbbreviated(r.marketValue)}
                 </td>
                 <td className="num">{formatPercent(r.predictedPct)}</td>
+                <td className="num muted">
+                  {r.lower === null || r.upper === null
+                    ? "—"
+                    : `${formatPercent(r.lower)} to ${formatPercent(r.upper)}`}
+                </td>
                 <td className="num">
                   <Confidence tier={r.confidence} />
                 </td>
@@ -89,10 +90,11 @@ function Predictions({ record }: { record: TrackRecordResponse | undefined }) {
   return (
     <section className="flex flex-col gap-sm">
       <h3 className="section-title">
-        Next market update — from the {formatShortDate(data.madeOn)} snapshot
+        Next 7 days — outlook as of {formatShortDate(data.madeOn)}
       </h3>
       <p className="text-xs muted">
-        {data.predictions.length} players predicted ({data.modelVersion}). Confidence words and
+        {data.predictions.length} players predicted, each with the range the change falls in 8
+        times out of 10. Confidence words and
         their {label} hit rates:{" "}
         {TIERS.map((t) => `${t} ${formatRate(bucket?.byConfidence[t])}`).join(" · ")}.
       </p>
@@ -100,93 +102,6 @@ function Predictions({ record }: { record: TrackRecordResponse | undefined }) {
         <PredictionList title="Likely risers" rows={risers} />
         <PredictionList title="Likely fallers" rows={fallers} />
       </div>
-    </section>
-  );
-}
-
-function BucketRow({ name, bucket }: { name: string; bucket: RecordBucket }) {
-  return (
-    <tr>
-      <th scope="row">{name}</th>
-      <td className="num">{formatRate(bucket)}</td>
-      {TIERS.map((t) => (
-        <td key={t} className="tabular text-right">
-          {formatRate(bucket.byConfidence[t])}
-        </td>
-      ))}
-      <td className="num">{formatRate(bucket.byScoring.exact)}</td>
-      <td className="num">{formatRate(bucket.byScoring.interval)}</td>
-      <td className="num">{bucket.pending}</td>
-    </tr>
-  );
-}
-
-function TrackRecord({ record }: { record: V1TrackRecordResponse }) {
-  return (
-    <section className="flex flex-col gap-sm">
-      <h3 className="section-title">Track record</h3>
-      <p className="text-xs muted">
-        Every prediction is scored against the next captured snapshot. One day later, that
-        snapshot's published move <em>is</em> the predicted update (<strong>exact</strong>). Longer
-        gaps only show the net change across them (<strong>interval</strong>), which can hide a
-        reversal. Live calls were made before the update they predict; the backtest was computed
-        afterwards from the same history and is never merged into the live record.
-      </p>
-      <div className="table-scroll">
-      <table className="data-table compact">
-        <thead>
-          <tr>
-            <th />
-            <th className="num">All</th>
-            {TIERS.map((t) => (
-              <th key={t} className="num capitalize">
-                {t}
-              </th>
-            ))}
-            <th className="num">Exact</th>
-            <th className="num">Interval</th>
-            <th className="num">Pending</th>
-          </tr>
-        </thead>
-        <tbody>
-          <BucketRow name="Live" bucket={record.ours.live} />
-          <BucketRow name="Backtest" bucket={record.ours.retroactive} />
-        </tbody>
-      </table>
-      </div>
-      <p className="text-xs muted">
-        The source's published lists, scored the same way: {formatRate(record.source)}; ours on
-        the same player-days: {formatRate(record.source.oursOnSamePlayers)}.
-        {record.source.scored < 100 && " Small sample — read it as an anecdote, not a verdict."}
-      </p>
-      <details className="text-xs">
-        <summary className="cursor-pointer text-sm font-semibold text-[color:var(--color-accent)]">By day</summary>
-        <div className="table-scroll mt-sm">
-        <table className="data-table compact">
-          <thead>
-            <tr>
-              <th>Made on</th>
-              <th className="num">Predicted</th>
-              <th className="num">Hit rate</th>
-              <th>Scored against</th>
-            </tr>
-          </thead>
-          <tbody>
-            {record.days.map((d) => (
-              <tr key={d.madeOn}>
-                <td>
-                  {formatShortDate(d.madeOn)}
-                  {d.retroactive ? " (backtest)" : ""}
-                </td>
-                <td className="num">{d.predictions}</td>
-                <td className="num">{formatRate(d)}</td>
-                <td>{d.scoring ? `${d.scoring}, ${d.gapDays}-day gap` : "pending"}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        </div>
-      </details>
     </section>
   );
 }
@@ -199,7 +114,7 @@ function V2TrackRecord({ record }: { record: TrackRecordResponse }) {
   const pct = (v: number | null | undefined) => (v == null ? "—" : `${(v * 100).toFixed(1)}%`);
   return (
     <section className="flex flex-col gap-sm">
-      <h3 className="section-title">Track record — v2 (7-day)</h3>
+      <h3 className="section-title">Track record</h3>
       <p className="text-xs muted">
         v2 predicts the change over the next 7 days; the naive baseline assumes next week repeats
         last week.
@@ -333,59 +248,25 @@ function VerdictValidation() {
   );
 }
 
-const VERSION_LABEL: Record<MarketModelVersion, string> = {
-  "market-v1": "v1 · next update",
-  "market-v2": "v2 · 7-day",
-};
-
-function VersionToggle({
-  version,
-  onChange,
-}: {
-  version: MarketModelVersion;
-  onChange: (v: MarketModelVersion) => void;
-}) {
-  return (
-    <div className="segmented" role="group" aria-label="Track record model version">
-      {(Object.keys(VERSION_LABEL) as MarketModelVersion[]).map((v) => (
-        <button
-          key={v}
-          type="button"
-          aria-pressed={version === v}
-          className={`badge ${version === v ? "bg-[color:var(--color-accent)]/10 text-[color:var(--color-accent)]" : "muted"}`}
-          onClick={() => onChange(v)}
-        >
-          {VERSION_LABEL[v]}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-/** MODEL-01/03/04 on one tab: our predictions, how right they have been,
- * and where they part ways with the source's. The track record's version
- * toggle switches between v1's next-update record and v2's 7-day one. */
+/** Our 7-day price model (market-v2) on one tab: its calls, how right
+ * they have been against a naive baseline, and where they part ways with
+ * the source's lists. market-v1 was retired on 2026-10-08. */
 export default function MarketModelTab() {
-  const [version, setVersion] = useState<MarketModelVersion>("market-v1");
   const { data: record } = useQuery({
-    queryKey: ["market-track-record", version],
-    queryFn: () => fetchTrackRecord(version),
+    queryKey: ["market-track-record", "market-v2"],
+    queryFn: () => fetchTrackRecord("market-v2"),
   });
   return (
     <div className="flex flex-col gap-xl">
       <p className="state-note max-w-[70ch]">
         Market prediction is inference under partial observation: who is buying is invisible, so
         this model works from the last published move, its acceleration, starter and availability
-        changes, and fresh points. Prices are highly persistent, and this model is essentially
-        persistence plus a nudge — what it adds is an honest confidence tier, not magic.
+        changes, and fresh points, over the next 7 days. Prices are highly persistent, and this
+        model is essentially persistence plus a nudge — what it adds is an honest range and
+        confidence tier, not magic.
       </p>
-      <Predictions record={version === "market-v1" ? record : undefined} />
-      <VersionToggle version={version} onChange={setVersion} />
-      {record && (version === "market-v1" ? (
-        <TrackRecord record={record as V1TrackRecordResponse} />
-      ) : (
-        <V2TrackRecord record={record} />
-      ))}
+      <Predictions record={record} />
+      {record && <V2TrackRecord record={record} />}
       <VerdictValidation />
       <Divergence />
     </div>

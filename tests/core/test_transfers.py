@@ -19,6 +19,7 @@ from core.transfers import (
     MAX_GAP_COUNTED,
     SURPLUS_SHARE,
     PlayerInput,
+    affordable_move,
     assess_freshness,
     assess_player,
     bargains,
@@ -40,7 +41,7 @@ def _p(pid, position="MED", mv=10_000_000, ppg=5.0, **kw) -> PlayerInput:
         player_id=pid, name=f"P{pid}", team=f"T{pid}", position=position, market_value=mv,
         source_ideal_bid=mv, source_max_bid=mv, availability="available",
         starter_probability=None, backward_ppg=ppg, recent_jornadas=10,
-        expected_points=None, fair_value=None, valuation_gap=None, economy=None,
+        expected_points=None, fair_value=None, valuation_gap=None,
         power_score=None, predicted_pct=None, prediction_confidence=None,
     )
     base.update(kw)
@@ -65,10 +66,19 @@ def test_bids_never_go_below_market_value():
     assert bids.maximum == 10_000_000
 
 
-def test_ideal_bid_is_the_predicted_post_update_value_for_a_riser():
-    bids = compute_bids(_p(1, predicted_pct=2.0))
-    assert bids.ideal == 10_200_000
-    assert bids.maximum >= bids.ideal
+def test_bids_use_the_daily_share_of_the_weekly_outlook():
+    # predicted_pct is market-v2's expected change over 7 days: +7 % is
+    # +1 % per market update.
+    bids = compute_bids(_p(1, predicted_pct=7.0))
+    assert bids.ideal == 10_100_000
+    assert bids.maximum == 10_300_000  # MAX_BID_HORIZON_UPDATES = 3 updates
+
+
+def test_no_outlook_means_market_value_bids_and_no_value_term():
+    a = assess_player(_p(1, predicted_pct=None), fixture_outlook(None, 3),
+                      jornadas=3, cash_per_point=CPP)
+    assert a.value_term == 0
+    assert a.bids.ideal == a.bids.maximum == 10_000_000
 
 
 def test_max_bid_adds_a_share_of_the_valuation_gap_and_is_capped():
@@ -76,7 +86,7 @@ def test_max_bid_adds_a_share_of_the_valuation_gap_and_is_capped():
     assert modest.maximum == round(10_000_000 * (1 + SURPLUS_SHARE * 0.2))
     huge_gap = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=0.0))
     assert huge_gap.maximum == round(10_000_000 * (1 + SURPLUS_SHARE * MAX_GAP_COUNTED))
-    capped = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=9.0))
+    capped = compute_bids(_p(1, valuation_gap=40.0, predicted_pct=70.0))
     assert capped.maximum == round(10_000_000 * (1 + MAX_BID_PREMIUM))
 
 
@@ -326,14 +336,36 @@ def test_each_player_appears_in_at_most_one_move():
     assert len(buys) == len(set(buys))
 
 
-def test_a_free_slot_yields_an_add_move():
-    squad = _full_squad()[:-1]
+def _xi(drop=None):
+    """Eleven players in a 4-4-2 — a fieldable XI, far under the cap."""
+    positions = ["POR"] + ["DEF"] * 4 + ["MED"] * 4 + ["DEL"] * 2
+    if drop:
+        positions.remove(drop)
+    return [_member(i + 1, pos) for i, pos in enumerate(positions)]
+
+
+def test_a_complete_xi_gets_swaps_not_bench_adds():
+    """Owner, 2026-10-08: 'why should I sign bench players'. With a full XI
+    and free slots, the better player comes in for someone, not beside him."""
+    squad = _xi()
     owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
-    target = _p(100, "DEL", mv=2_000_000, ppg=6.0)
-    moves = suggest_moves(squad, _assess([*owned, target]), RULES, ceiling=None,
+    star = _p(100, "DEL", mv=2_000_000, ppg=9.0)
+    moves = suggest_moves(squad, _assess([*owned, star]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3)
+    assert moves
+    assert all(m.kind == "swap" for m in moves)
+    assert moves[0].buy.player_id == 100
+
+
+def test_a_missing_xi_slot_yields_an_add_that_fills_it():
+    squad = _xi(drop="POR")
+    owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
+    keeper = _p(100, "POR", mv=2_000_000, ppg=4.0)
+    star = _p(101, "DEL", mv=2_000_000, ppg=9.0)
+    moves = suggest_moves(squad, _assess([*owned, keeper, star]), RULES, ceiling=None,
                           freshness=_fresh(), jornadas=3)
     adds = [m for m in moves if m.kind == "add"]
-    assert adds and adds[0].buy.player_id == 100 and adds[0].sell is None
+    assert [m.buy.player_id for m in adds] == [100]
 
 
 def test_injured_players_are_never_suggested_buys():
@@ -466,3 +498,51 @@ def test_a_good_backup_goalkeeper_is_not_worth_buying_over_an_outfield_upgrade()
 
 def test_availability_factor_is_shared_with_power():
     assert AVAILABILITY_FACTOR is an.AVAILABILITY_FACTOR
+
+
+# --- the owner's saved budget -------------------------------------------------------
+
+
+def test_a_swap_counts_the_sale_toward_the_buy():
+    sell = assess_player(_p(1, mv=15_000_000), fixture_outlook(None, 3), 3, CPP)
+    assert affordable_move(20_000_000, sell, cash=6_000_000) is True
+    assert affordable_move(22_000_000, sell, cash=6_000_000) is False
+
+
+def test_an_add_needs_the_cash_and_no_budget_means_no_limit():
+    assert affordable_move(20_000_000, None, cash=6_000_000) is False
+    assert affordable_move(6_000_000, None, cash=6_000_000) is True
+    assert affordable_move(90_000_000, None, cash=None) is True
+
+
+def test_a_zero_budget_still_allows_a_swap_the_sale_pays_for():
+    sell = assess_player(_p(1, mv=5_000_000), fixture_outlook(None, 3), 3, CPP)
+    assert affordable_move(5_000_000, sell, cash=0) is True
+    assert affordable_move(5_000_001, sell, cash=0) is False
+
+
+def test_suggestions_keep_within_the_budget_counting_the_sale():
+    squad = _xi()
+    owned = [_p(m.player_id, m.position, mv=4_000_000, ppg=3.0) for m in squad]
+    pricey = _p(100, "DEL", mv=50_000_000, ppg=9.0)
+    reachable = _p(101, "DEL", mv=9_000_000, ppg=7.0)  # 4M sale + 5M cash
+    moves = suggest_moves(squad, _assess([*owned, pricey, reachable]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3, cash=5_000_000)
+    assert moves
+    assert all(m.buy.player_id != 100 for m in moves)
+    assert moves[0].buy.player_id == 101
+
+
+def test_a_formation_tie_never_trades_the_only_keeper_for_an_outfielder():
+    """Final review #1: 1 POR, 4 DEF, 4 MED, 1 DEL can be completed by a DEL
+    (4-4-2) or a MED (4-5-1). The route-picked shortfall said DEL only, the
+    MED add was refused, and the top move sold the only goalkeeper."""
+    positions = ["POR"] + ["DEF"] * 4 + ["MED"] * 4 + ["DEL"]
+    squad = [_member(i + 1, pos) for i, pos in enumerate(positions)]
+    owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
+    med = _p(100, "MED", mv=2_000_000, ppg=9.0)
+    weak_del = _p(101, "DEL", mv=2_000_000, ppg=1.0)
+    moves = suggest_moves(squad, _assess([*owned, med, weak_del]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3)
+    assert moves[0].kind == "add" and moves[0].buy.player_id == 100
+    assert not any(m.sell and m.sell.player_id == 1 for m in moves)

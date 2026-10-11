@@ -30,16 +30,20 @@ from typing import Literal
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, BackgroundTasks, HTTPException
+from sqlmodel import func, select
 
 from api.deps import SessionDep
+from core import expected_points as xp
 from core.config import get_settings
 from core.freshness import is_stale, last_market_update
 from core.player_pages import expected_last_day
 from scraper.run import run_daily_refresh
 from storage.db import as_utc
-from storage.models import DatasetRun, ScrapeRun
+from storage.expected_points import select_target
+from storage.models import DatasetRun, ExpectedPointsPrediction, ScrapeRun
 from storage.player_pages import coverage
 from storage.repository import (
+    close_stale_runs,
     get_last_successful_run,
     get_recent_runs,
     has_running_run,
@@ -52,9 +56,10 @@ router = APIRouter()
 MADRID = ZoneInfo("Europe/Madrid")
 
 
-def _run_to_dto(run: ScrapeRun) -> dict:
+def _run_to_dto(run: ScrapeRun, current_dataset: str | None = None) -> dict:
     errors = json.loads(run.validation_errors) if run.validation_errors else []
     return {
+        "currentDataset": current_dataset,
         "id": run.id,
         "startedAt": run.started_at.isoformat(),
         "finishedAt": run.finished_at.isoformat() if run.finished_at else None,
@@ -63,6 +68,18 @@ def _run_to_dto(run: ScrapeRun) -> dict:
         "validationErrors": errors,
         "mode": run.mode,
     }
+
+
+def _current_dataset(session, run: ScrapeRun) -> str | None:
+    """The dataset a `running` run is on — its newest `running` dataset run."""
+    if run.status != "running":
+        return None
+    return session.exec(
+        select(DatasetRun.dataset)
+        .where(DatasetRun.scrape_run_id == run.id)
+        .where(DatasetRun.status == "running")
+        .order_by(DatasetRun.id.desc())
+    ).first()
 
 
 def _dataset_to_dto(dataset_run: DatasetRun) -> dict:
@@ -86,6 +103,9 @@ def get_health(session: SessionDep):
     settings = get_settings()
     last_success = get_last_successful_run(session)
     last_complete_run = get_last_successful_run(session, mode="complete")
+    # A run a killed process left `running` would otherwise keep the UI
+    # polling, and "refreshing", forever.
+    close_stale_runs(session, datetime.now(UTC))
     recent_runs = get_recent_runs(session, limit=10)
 
     now = datetime.now(UTC)
@@ -130,10 +150,31 @@ def get_health(session: SessionDep):
         "isStale": stale,
         "hoursSinceLastSuccess": hours_since_last_success,
         "marketUpdatedAt": market_updated_at.isoformat(),
-        "recentRuns": [_run_to_dto(run) for run in recent_runs],
+        "recentRuns": [_run_to_dto(run, _current_dataset(session, run)) for run in recent_runs],
         "datasets": [_dataset_to_dto(d) for d in latest_dataset_runs(session).values()],
         "playerPages": player_pages,
         "suggestComplete": suggest_complete,
+        "nextLock": _next_lock(session, now, market_updated_at, settings.current_season_year),
+    }
+
+
+def _next_lock(session, now: datetime, market_updated_at: datetime, season: int) -> dict | None:
+    """The next jornada's lineup deadline (its first kickoff), and whether
+    expected points for it were recorded since the latest market update —
+    they freeze at the lock, so a refresh after it can't record them."""
+    target = select_target(session, now, season)
+    if target.locks_at is None:
+        return None
+    newest = session.exec(
+        select(func.max(ExpectedPointsPrediction.updated_at))
+        .where(ExpectedPointsPrediction.season_year == season)
+        .where(ExpectedPointsPrediction.jornada == target.jornada)
+        .where(ExpectedPointsPrediction.model_version == xp.MODEL_VERSION)
+    ).one()
+    return {
+        "jornada": target.jornada,
+        "locksAt": as_utc(target.locks_at).isoformat(),
+        "predictionsRecorded": newest is not None and as_utc(newest) >= market_updated_at,
     }
 
 

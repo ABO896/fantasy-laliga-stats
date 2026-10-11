@@ -13,7 +13,6 @@ from core.analytics import (
     ValuationInput,
     build_timeline,
     consistency,
-    economy_scores,
     fit_fair_value,
     form,
     player_series,
@@ -207,7 +206,7 @@ def test_small_positions_fall_back_to_the_pooled_fit():
     assert fits["POR"].pooled is True
 
 
-def test_valuation_gap_and_economy_percentile():
+def test_valuation_gap():
     pairs = [(p, int(math.exp(14 + 0.5 * math.log(p)))) for p in range(1, 20)]
     data = _market("MED", pairs)
     fair_at_10 = math.exp(14 + 0.5 * math.log(10))
@@ -216,9 +215,6 @@ def test_valuation_gap_and_economy_percentile():
     result = valuations(data + [cheap, dear])
     assert result[500].gap == pytest.approx(1.0, rel=0.05)  # fair/actual - 1 = +100%
     assert result[501].gap == pytest.approx(-0.5, rel=0.05)
-    econ = economy_scores(result)
-    assert econ[500] == 100.0
-    assert econ[501] == 0.0
 
 
 def test_valuation_needs_evidence():
@@ -228,7 +224,6 @@ def test_valuation_needs_evidence():
     result = valuations(data + [idle, newcomer])
     assert result[900].gap is None and result[900].reason == "no points in the recent window"
     assert result[901].gap is None and "jornadas" in result[901].reason
-    assert 900 not in economy_scores(result)
 
 
 def test_recent_avg_zero_gates_despite_shrunk_quality():

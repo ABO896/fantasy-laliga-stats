@@ -43,6 +43,9 @@ from scraper.errors import (
     ScrapeStructureChanged,
     classify_response,
 )
+from scraper.errors import (
+    blocked_message as _blocked_message,
+)
 from scraper.sources.flight import _FLIGHT_REF_PREFIX_RE, _NEXT_F_PUSH_RE, find_key
 
 # The site's `positionId` -> this project's normalized position enum.
@@ -91,9 +94,11 @@ def _goto(page, url: str) -> str:
     html = page.content()
     error_type = classify_response(status, html)
     if error_type is ScrapeBlocked:
-        raise ScrapeBlocked(f"Blocked by target site: HTTP {status}")
+        raise ScrapeBlocked(_blocked_message(f"HTTP {status}", html), html=html)
     if error_type is ScrapeStructureChanged:
-        raise ScrapeStructureChanged("Expected player table/data not found in response")
+        raise ScrapeStructureChanged(
+            "Expected player table/data not found in response", html=html
+        )
     return html
 
 

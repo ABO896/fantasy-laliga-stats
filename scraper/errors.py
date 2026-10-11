@@ -24,7 +24,29 @@ _CHALLENGE_MARKERS = (
 
 
 class ScrapeError(Exception):
-    """Base class for every classified scrape failure."""
+    """Base class for every classified scrape failure. `html` carries the
+    response body when there was one, so a refresh can keep the page that
+    failed for diagnosis."""
+
+    def __init__(self, message: str = "", html: str | None = None):
+        super().__init__(message)
+        self.html = html
+
+
+def blocked_message(detail: str, html: str | None) -> str:
+    """`Blocked by target site: <detail>`, plus the challenge marker that
+    matched, when one did (a 403/429 needs none)."""
+    marker = matched_marker(html)
+    suffix = f' (marker: "{marker}")' if marker else ""
+    return f"Blocked by target site: {detail}{suffix}"
+
+
+def matched_marker(html: str | None) -> str | None:
+    """The first `_CHALLENGE_MARKERS` entry found in `html`, or `None` —
+    named in a block's message so a false match can be told from a real
+    challenge."""
+    lowered = (html or "").lower()
+    return next((m for m in _CHALLENGE_MARKERS if m in lowered), None)
 
 
 class ScrapeBlocked(ScrapeError):

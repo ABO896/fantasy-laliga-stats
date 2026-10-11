@@ -34,7 +34,12 @@ export interface PredictionOutcome {
 export interface MarketPrediction {
   madeOn: string;
   modelVersion: string;
+  /** Expected % change over `horizonDays` (7 for market-v2). */
   predictedPct: number;
+  /** The 80 % range around it — `null` on old rows that stored none. */
+  lower: number | null;
+  upper: number | null;
+  horizonDays: number;
   direction: MarketDirection;
   confidence: MarketConfidence;
   inputs: PredictionInputs;
@@ -98,13 +103,6 @@ export interface TrackRecordResponse {
   naive?: NaiveBaseline;
 }
 
-/** market-v1's shape, with `days`/`source` always present — what
- * `fetchTrackRecord("market-v1")` actually returns. */
-export interface V1TrackRecordResponse extends TrackRecordResponse {
-  days: TrackRecordDay[];
-  source: HitBucket & { oursOnSamePlayers: HitBucket };
-}
-
 export interface DivergenceRow {
   playerId: number;
   name: string | null;
@@ -128,10 +126,11 @@ export function fetchMarketPredictions(): Promise<MarketPredictionsResponse> {
   return apiFetch<MarketPredictionsResponse>("/models/market/predictions");
 }
 
+/** market-v1 was retired on 2026-10-08; its history is still served by name. */
 export type MarketModelVersion = "market-v1" | "market-v2";
 
 export function fetchTrackRecord(
-  version: MarketModelVersion = "market-v1",
+  version: MarketModelVersion = "market-v2",
 ): Promise<TrackRecordResponse> {
   return apiFetch<TrackRecordResponse>(`/models/market/track-record?version=${version}`);
 }

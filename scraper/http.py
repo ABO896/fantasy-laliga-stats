@@ -23,6 +23,7 @@ from scraper.errors import (
     ScrapeNetworkError,
     ScrapeNotPublished,
     ScrapeStructureChanged,
+    blocked_message,
     classify_response,
 )
 
@@ -51,7 +52,9 @@ def _get(url: str, structure_markers: tuple[str, ...], settings: Settings) -> st
     html = response.text
     error_type = classify_response(response.status_code, html, structure_markers)
     if error_type is ScrapeBlocked:
-        raise ScrapeBlocked(f"Blocked by target site: HTTP {response.status_code} for {url}")
+        raise ScrapeBlocked(
+            blocked_message(f"HTTP {response.status_code} for {url}", html), html=html
+        )
     if error_type is ScrapeNotPublished:
         raise ScrapeNotPublished(f"Not published by the source: HTTP 404 for {url}")
     if error_type is ScrapeStructureChanged:

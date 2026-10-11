@@ -63,6 +63,19 @@ def pytest_runtest_call(item):
     return (yield from _skip_on_missing_fixture())
 
 
+@pytest.fixture(autouse=True)
+def _isolated_raw_snapshots(tmp_path, monkeypatch):
+    """A refresh writes raw HTML under `RAW_SNAPSHOT_ROOT` and purges old
+    directories there; without this the suite wrote into the real
+    `data/raw_scrapes/` (found 2026-10-08)."""
+    from core.config import get_settings
+
+    monkeypatch.setenv("RAW_SNAPSHOT_ROOT", str(tmp_path / "raw_scrapes"))
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
 @pytest.fixture()
 def engine():
     eng = create_engine(

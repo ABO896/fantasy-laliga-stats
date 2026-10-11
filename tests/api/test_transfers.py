@@ -227,3 +227,66 @@ def test_best_by_position_carries_the_within_position_power_rank(world, client):
     for p in ranked:
         assert set(p["powerRank"]) == {"rank", "of"}
         assert 1 <= p["powerRank"]["rank"] <= p["powerRank"]["of"]
+
+
+def test_transfers_read_the_market_v2_outlook_and_ignore_v1(world, session):
+    import json
+
+    from storage.models import MarketPrediction
+
+    star = world["market"][("MED", "cheap")]
+    made = date(2026, 9, 16)
+    session.add(MarketPrediction(
+        made_on=made, player_id=star, model_version="market-v1", predicted_pct=-9.0,
+        direction="fall", confidence="strong", inputs="{}", generated_at=datetime.now(UTC),
+        retroactive=False,
+    ))
+    session.add(MarketPrediction(
+        made_on=made, player_id=star, model_version="market-v2", predicted_pct=7.0,
+        direction="rise", confidence="strong",
+        inputs=json.dumps({"lower": 2.0, "upper": 12.0, "basis": "ridge"}),
+        generated_at=datetime.now(UTC), retroactive=False,
+    ))
+    session.commit()
+
+    ctx = build_context(session, RULES, SEASON, 3, datetime.now(UTC))
+    p = ctx.assessments[star].player
+    assert p.predicted_pct == 7.0
+    assert p.prediction_confidence == "strong"
+
+
+def _save_budget(client, cash):
+    client.put("/api/league-settings", json={"premiumFormationsEnabled": False,
+                                             "premiumBenchEnabled": False, "cashAvailable": cash})
+
+
+def test_suggestions_use_the_saved_budget_counting_each_sale(world, client):
+    _save_budget(client, 1_500_000)
+    body = client.get("/api/transfers/suggestions").json()
+    assert body["budget"] == {"cash": 1_500_000, "source": "settings"}
+    assert body["moves"]
+    spent = 1_500_000
+    for m in body["moves"]:
+        sale = m["sell"]["marketValue"] if m["sell"] else 0
+        assert m["buy"]["marketValue"] <= spent + sale
+        spent += sale - m["buy"]["marketValue"]
+    assert all(m["buy"]["marketValue"] < 60_000_000 for m in body["moves"])  # no stars
+
+
+def test_an_explicit_max_overrides_the_saved_budget(world, client):
+    _save_budget(client, 1_500_000)
+    body = client.get("/api/transfers/suggestions?max=100000000").json()
+    assert body["budget"] is None
+    assert body["ceiling"] == {"max": 100_000_000, "basis": "marketValue"}
+
+
+def test_best_by_position_uses_the_saved_budget_as_its_ceiling(world, client):
+    _save_budget(client, 3_000_000)
+    body = client.get("/api/transfers/best?position=MED").json()
+    assert body["ceilingMissing"] is False
+    assert all(p["marketValue"] <= 3_000_000 for p in body["players"])
+
+
+def test_no_saved_budget_means_no_limit(world, client):
+    body = client.get("/api/transfers/suggestions").json()
+    assert body["budget"] is None

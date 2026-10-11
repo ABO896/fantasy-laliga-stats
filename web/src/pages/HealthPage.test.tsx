@@ -24,6 +24,7 @@ function buildRun(overrides: Partial<ScrapeRunDto> & { id: number }): ScrapeRunD
     status: "success",
     rowCount: 342,
     validationErrors: [],
+      currentDataset: null,
     mode: "quick",
     ...overrides,
   };
@@ -39,6 +40,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
     recentRuns: [buildRun({ id: 1 })],
     playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: "2026-08-20" },
     suggestComplete: false,
+    nextLock: null,
     ...overrides,
   };
 }

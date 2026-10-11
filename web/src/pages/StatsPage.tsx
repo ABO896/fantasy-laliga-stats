@@ -33,7 +33,7 @@ export default function StatsPage() {
   const requestedTab = searchParams.get("tab");
   const tab: TabId = TABS.some((t) => t.id === requestedTab) ? (requestedTab as TabId) : "scores";
 
-  const seasons = data?.seasons ?? [];
+  const seasons = useMemo(() => data?.seasons ?? [], [data]);
   const season = useMemo(() => {
     const fromUrl = Number(searchParams.get("season"));
     if (seasons.includes(fromUrl)) return fromUrl;

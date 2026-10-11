@@ -13,8 +13,9 @@ import statistics
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 
+from sqlalchemy import and_
 from sqlmodel import Session, delete, func, select
 
 from core import analytics as an
@@ -129,6 +130,12 @@ def calendar_final_weeks(session: Session, season: int, now: datetime) -> set[tu
 # --- ANALYTICS: per-player scores ---------------------------------------------------
 
 
+#: The price model every surface reads (market-v1 retired 2026-10-08; its
+#: stored rows stay as history and are still scored).
+PRICE_MODEL = m2.MODEL_VERSION
+#: A player's latest outlook older than this is dropped, not shown as current.
+OUTLOOK_MAX_AGE_DAYS = 7
+
 @dataclass(frozen=True)
 class PlayerAnalytics:
     player_id: int
@@ -138,7 +145,6 @@ class PlayerAnalytics:
     power_inputs: an.PowerInputs | None
     power: an.PowerResult | None
     valuation: an.ValuationResult | None
-    economy: float | None
     market_value: int | None
 
 
@@ -147,7 +153,7 @@ def compute_player_analytics(
     now: datetime | None = None,
     season: int | None = None,
 ) -> dict[int, PlayerAnalytics]:
-    """Power, Economy and their components for every player in the latest
+    """Power, the valuation and their components for every player in the latest
     snapshot.
 
     Power v2 reads his current-season points per team match, shrunk toward
@@ -196,7 +202,6 @@ def compute_player_analytics(
                                                 availability=availability))
 
     vals = an.valuations(val_inputs)
-    econ = an.economy_scores(vals)
     return {
         pid: PlayerAnalytics(
             player_id=pid,
@@ -206,7 +211,6 @@ def compute_player_analytics(
             power_inputs=inputs,
             power=power,
             valuation=vals.get(pid),
-            economy=econ.get(pid),
             market_value=market_value,
         )
         for pid, (series, inputs, power, market_value) in partial.items()
@@ -214,11 +218,8 @@ def compute_player_analytics(
 
 
 def score_fields(a: PlayerAnalytics | None) -> dict:
-    """The two headline numbers, as the browser and squad payloads carry them."""
-    return {
-        "powerScore": round(a.power.score, 1) if a and a.power else None,
-        "economyScore": round(a.economy, 1) if a and a.economy is not None else None,
-    }
+    """The headline score, as the browser and squad payloads carry it."""
+    return {"powerScore": round(a.power.score, 1) if a and a.power else None}
 
 
 def _round(x: float | None, n: int = 2) -> float | None:
@@ -331,7 +332,7 @@ def player_analytics_payload(
     prediction = session.exec(
         select(MarketPrediction)
         .where(MarketPrediction.player_id == player_id)
-        .where(MarketPrediction.model_version == mm.MODEL_VERSION)
+        .where(MarketPrediction.model_version == PRICE_MODEL)
         .order_by(MarketPrediction.made_on.desc())
     ).first()
 
@@ -407,11 +408,6 @@ def player_analytics_payload(
                 "pooled": fit.pooled,
             },
         },
-        "economy": a and {
-            "score": _round(a.economy, 1),
-            "basis": "percentile of the log-log valuation gap among valued players "
-                     "(starter > 30%, ≥ 3 matches this season, available)",
-        },
         "marketPrediction": prediction and _prediction_payload(prediction),
         "ranks": ranks,
         "xp": xp_block,
@@ -429,13 +425,17 @@ class RefreshSummary:
 
 
 def _prediction_payload(p: MarketPrediction) -> dict:
+    inputs = json.loads(p.inputs)
     return {
+        "lower": _round(inputs.get("lower"), 3),
+        "upper": _round(inputs.get("upper"), 3),
+        "horizonDays": inputs.get("horizonDays", 1 if p.model_version == mm.MODEL_VERSION else 7),
         "madeOn": p.made_on.isoformat(),
         "modelVersion": p.model_version,
         "predictedPct": _round(p.predicted_pct, 3),
         "direction": p.direction,
         "confidence": p.confidence,
-        "inputs": json.loads(p.inputs),
+        "inputs": inputs,
         "retroactive": p.retroactive,
         "outcome": (
             {
@@ -566,27 +566,50 @@ def _players(session: Session, ids) -> dict[int, Player]:
     return {p.id: p for p in session.exec(select(Player).where(Player.id.in_(ids))).all()}
 
 
-def market_predictions_payload(session: Session, made_on: date | None = None) -> dict:
-    made_on = made_on or session.exec(
-        select(func.max(MarketPrediction.made_on)).where(
-            MarketPrediction.model_version == mm.MODEL_VERSION
-        )
+def latest_price_rows(session: Session, on: date | None = None) -> dict[int, MarketPrediction]:
+    """Each player's latest `PRICE_MODEL` row made on or before `on` (default:
+    the latest day stored), no older than `OUTLOOK_MAX_AGE_DAYS` — the same
+    per-player rule as `storage.market_v2.latest_outlooks`, as stored rows."""
+    on = on or session.exec(
+        select(func.max(MarketPrediction.made_on))
+        .where(MarketPrediction.model_version == PRICE_MODEL)
     ).one()
-    if made_on is None:
-        return {"madeOn": None, "modelVersion": mm.MODEL_VERSION, "predictions": []}
+    if on is None:
+        return {}
+    latest = (
+        select(MarketPrediction.player_id, func.max(MarketPrediction.made_on).label("made_on"))
+        .where(MarketPrediction.model_version == PRICE_MODEL)
+        .where(MarketPrediction.made_on <= on)
+        .where(MarketPrediction.made_on >= on - timedelta(days=OUTLOOK_MAX_AGE_DAYS))
+        .group_by(MarketPrediction.player_id)
+        .subquery()
+    )
     rows = session.exec(
         select(MarketPrediction)
-        .where(MarketPrediction.made_on == made_on)
-        .where(MarketPrediction.model_version == mm.MODEL_VERSION)
+        .join(latest, and_(MarketPrediction.player_id == latest.c.player_id,
+                           MarketPrediction.made_on == latest.c.made_on))
+        .where(MarketPrediction.model_version == PRICE_MODEL)
     ).all()
-    players = _players(session, (r.player_id for r in rows))
-    mv = dict(
-        session.exec(
-            select(PlayerSnapshot.player_id, PlayerSnapshot.market_value).where(
-                PlayerSnapshot.as_of == made_on
-            )
+    return {r.player_id: r for r in rows}
+
+
+def market_predictions_payload(session: Session, made_on: date | None = None) -> dict:
+    """The price model's calls: each player's latest outlook, or — with
+    `made_on` — exactly the calls made that day."""
+    if made_on is None:
+        by_player = latest_price_rows(session)
+        rows = list(by_player.values())
+        made_on = max((r.made_on for r in rows), default=None)
+    else:
+        rows = session.exec(
+            select(MarketPrediction)
+            .where(MarketPrediction.made_on == made_on)
+            .where(MarketPrediction.model_version == PRICE_MODEL)
         ).all()
-    )
+    if made_on is None:
+        return {"madeOn": None, "modelVersion": PRICE_MODEL, "predictions": []}
+    players = _players(session, (r.player_id for r in rows))
+    latest_mv = _latest_market_values(session, [r.player_id for r in rows])
     out = []
     for r in sorted(rows, key=lambda r: -r.predicted_pct):
         pl = players.get(r.player_id)
@@ -596,11 +619,28 @@ def market_predictions_payload(session: Session, made_on: date | None = None) ->
                 "name": pl.name if pl else None,
                 "team": pl.team if pl else None,
                 "position": pl.position if pl else None,
-                "marketValue": mv.get(r.player_id),
+                "marketValue": latest_mv.get(r.player_id),
                 **_prediction_payload(r),
             }
         )
-    return {"madeOn": made_on.isoformat(), "modelVersion": mm.MODEL_VERSION, "predictions": out}
+    return {"madeOn": made_on.isoformat(), "modelVersion": PRICE_MODEL, "predictions": out}
+
+
+def _latest_market_values(session: Session, player_ids: list[int]) -> dict[int, int]:
+    latest = (
+        select(PlayerSnapshot.player_id, func.max(PlayerSnapshot.as_of).label("as_of"))
+        .where(PlayerSnapshot.player_id.in_(player_ids))
+        .group_by(PlayerSnapshot.player_id)
+        .subquery()
+    )
+    return dict(
+        session.exec(
+            select(PlayerSnapshot.player_id, PlayerSnapshot.market_value).join(
+                latest, and_(PlayerSnapshot.player_id == latest.c.player_id,
+                             PlayerSnapshot.as_of == latest.c.as_of)
+            )
+        ).all()
+    )
 
 
 def _source_market_rows(session: Session):
@@ -611,7 +651,7 @@ def _source_market_rows(session: Session):
     ]
 
 
-def track_record_payload(session: Session, model_version: str = mm.MODEL_VERSION) -> dict:
+def track_record_payload(session: Session, model_version: str = "market-v2") -> dict:
     if model_version == "market-v2":
         from storage.market_v2 import v2_track_record
 
@@ -691,14 +731,9 @@ def divergence_payload(session: Session) -> dict:
         return {"asOf": None, "rows": [], "agree": 0, "disagree": 0, "ourCallMissing": 0}
     as_of = max(r.as_of for r in rows)
     today_rows = [r for r in rows if r.as_of == as_of]
-    ours = {
-        p.player_id: p
-        for p in session.exec(
-            select(MarketPrediction)
-            .where(MarketPrediction.made_on == as_of)
-            .where(MarketPrediction.model_version == mm.MODEL_VERSION)
-        ).all()
-    }
+    # Our 7-day call standing on that day vs their next-update lists — the
+    # horizons differ, so "agree" means the same direction, nothing more.
+    ours = latest_price_rows(session, on=as_of)
     players = _players(session, (r.player_id for r in today_rows))
     out = []
     for r in today_rows:

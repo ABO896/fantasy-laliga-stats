@@ -272,7 +272,7 @@ describe("PlayerBrowser", () => {
     // value too.
     mockPlayers([
       buildPlayer({
-        playerId: 1, pricePerPoint: null, powerScore: 50, economyScore: 50, expectedPoints: 3,
+        playerId: 1, pricePerPoint: null, powerScore: 50, expectedPoints: 3,
         pointsValuePct: 40, reliabilityClass: "Regular", pStart: 0.6, outlookPct: 1.2,
         outlookDirection: "rise", dropRisk: false,
         verdict: { label: "Fair price", tags: [], confidence: "medium" },

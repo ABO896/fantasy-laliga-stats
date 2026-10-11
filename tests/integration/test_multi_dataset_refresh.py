@@ -206,3 +206,24 @@ def test_a_stored_provisional_week_is_refetched_and_cleared(session, monkeypatch
     assert 1 in calls, "a stored provisional week must be re-fetched"
     week1 = session.exec(select(PlayerGameweekPoints).where(PlayerGameweekPoints.week == 1)).all()
     assert week1 and not any(r.is_provisional for r in week1)
+
+
+def _market_lists(session, monkeypatch, found):
+    monkeypatch.setattr("scraper.run.fetch_market_predictions", lambda *a, **k: "")
+    monkeypatch.setattr("scraper.run.parse_market_predictions", lambda html: ([], 0, set(found)))
+    run = _run(session)
+    ingest_market_predictions(session, run, None)
+    return {d.dataset: d for d in get_dataset_runs(session, run.id)}["market_predictions"]
+
+
+def test_the_possible_lists_are_optional(session, monkeypatch):
+    """The source has published only its two top lists since at least
+    2026-10-01; a note about the paywalled 'possible' ones every run is noise."""
+    ds = _market_lists(session, monkeypatch, {"market_top_risers", "market_top_fallers"})
+    assert ds.status == "success"
+    assert ds.errors is None
+
+
+def test_a_missing_top_list_is_still_noted(session, monkeypatch):
+    ds = _market_lists(session, monkeypatch, {"market_top_risers"})
+    assert "market_top_fallers" in ds.errors
