@@ -1,4 +1,5 @@
 import { Link, NavLink, Outlet } from "react-router-dom";
+import SchemaBanner from "./SchemaBanner";
 import StaleBanner from "./StaleBanner";
 import SquadBar from "./SquadBar";
 
@@ -61,6 +62,7 @@ export default function Layout() {
           </nav>
         </div>
       </header>
+      <SchemaBanner />
       <StaleBanner />
       <SquadBar />
       <main className="mx-auto max-w-[1600px] px-md py-lg sm:px-lg lg:px-xl lg:py-xl">

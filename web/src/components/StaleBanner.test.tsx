@@ -37,6 +37,7 @@ function buildHealth(overrides: Partial<HealthResponse> = {}): HealthResponse {
     playerPages: { players: 556, complete: 540, withGaps: 16, withMatchGaps: 3, oldestLastDay: null },
     suggestComplete: false,
     nextLock: null,
+    schema: { current: "0019", head: "0019", upToDate: true },
     ...overrides,
   };
 }
