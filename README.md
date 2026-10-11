@@ -40,8 +40,9 @@ its baseline is switched off (see [Models and validation](#models-and-validation
 **Player browser** (`/`). All ~560 players with market value, price change, points, our
 **Power** rating, **Value** (points per euro against a replacement-level starter), a playing-time
 class (*Nailed*, *Regular*, *Rotation*, *Fringe*), a 7-day price outlook, expected points (xP)
-and the verdict. Sort and filter by any of them; filters live in the URL, and a ★ watchlist
-filters the table to the players you follow.
+and the verdict. Sort and filter by any of them; one click narrows the table to the verdicts
+worth acting on. Filters live in the URL, and a ★ watchlist filters the table to the players you
+follow.
 
 **Player page** (`/players/:id`). Market-value and points history, season statistics, and nine
 metric cards. Each card shows the value, its rank within the player's position, what the metric
@@ -52,8 +53,10 @@ update as the squad changes, the squad rules are enforced on the server, and squ
 points are charted over time.
 
 **Transfers** (`/transfers`). Ranked *sell → buy* suggestions with the signals behind each, the
-best players per position within your budget, and our own ideal and maximum bids. Every
-suggestion is checked to leave the squad legal, and confidence drops when the data is stale.
+best players per position, and our own ideal and maximum bids. Enter your cash once and it is
+saved; each swap may also spend what its sale pays. Once you can field a full XI, suggestions
+are swaps only; a plain signing is suggested only to fill a missing position. Every suggestion is
+checked to leave the squad legal, and confidence drops when the data is stale.
 
 **League stats** (`/stats`). Per-jornada scores and score distribution, team totals, streaks,
 single-jornada records and season leaderboards for 24 statistics. The **Market model** tab lists
@@ -164,6 +167,11 @@ Player pages supply per-match minutes and daily prices, which the playing-time c
 verdict depend on. Until a player's page has been fetched, their verdict is *Unproven* or carries
 low confidence; run a Complete refresh to fill them in.
 
+Refresh controls stay disabled until a run finishes, show the step it is on, and reload every
+page's data when it ends; only one refresh runs at a time. Within 36 hours of a jornada's first
+kickoff, the banner also reminds you to refresh, because expected points are frozen when the
+jornada locks.
+
 ### Updating
 
 ```bash
@@ -208,8 +216,7 @@ what actually happened. Track records are shown in the app, not only here.
 | **Value** | Points per euro against a replacement-level regular starter, over the next 3 jornadas | Input to the verdict; validated through it |
 | **Playing time** | Start and play chance from minutes, adjusted for availability | Requires player-page data |
 | **Expected points (xP)** | Per player, per jornada, from team-level odds, start chance and form | Against the source's prediction: MAE 2.40 vs 2.38, RMSE 3.34 vs 3.41, Spearman 0.54 vs 0.52 |
-| **7-day price outlook** | Per-position ridge regression on daily prices, with an 80 % interval | Scored at 7 days against a "repeat last week" baseline; interval coverage is currently ~70 % |
-| **Next-day market move** | Rise or fall at the next market update | 95.0 % correct vs 94.6 % for repeating the last move; *strong* calls 99.0 %, *weak* 73.8 % |
+| **7-day price outlook** | Per-position ridge regression on daily prices, with an 80 % interval; drives the verdict, transfers and our bids | Scored at 7 days against a "repeat last week" baseline; backtest interval coverage 82 %. *Drop risk* (an expected move of −3 % or worse) is right 87 % of the time |
 | **Verdict** | One label per player from the inputs above | Walk-forward backtest, below |
 
 **Verdict validation** (33 dates, compared with eligible players in the same position):
@@ -228,13 +235,17 @@ The evidence is still thin: only 14 of the 33 dates had a points outcome. Re-run
 the season progresses with `make verdict-report`; the result appears under Stats → Market model.
 
 **Known limits.** There is no permitted source for per-player xG or xA, so xP works from
-team-level data. Market demand (who is buying whom) is not observable, so price models infer it
-from proxies. Transfer-suggestion weights are set by hand and are not yet scored against outcomes.
+team-level data. Its opponent term needs bookmaker odds, which are often published only shortly
+before a jornada. A results-based opponent model was tested as a fallback and not adopted: on
+6,178 out-of-sample cases it did not measurably beat leaving the opponent out, and neither did
+real odds. Market demand (who is buying whom) is not observable, so price models infer it from
+proxies. Transfer-suggestion weights are set by hand and are not yet scored against outcomes.
 
-To reproduce the xP backtest:
+To reproduce the xP backtest, or re-run the opponent-model check as results accrue:
 
 ```bash
 uv run python -m storage.xp_backtest --db data/fantasy.db --fit
+make xp-gate
 ```
 
 ## Development
