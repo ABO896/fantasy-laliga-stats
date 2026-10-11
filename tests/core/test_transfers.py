@@ -531,3 +531,18 @@ def test_suggestions_keep_within_the_budget_counting_the_sale():
     assert moves
     assert all(m.buy.player_id != 100 for m in moves)
     assert moves[0].buy.player_id == 101
+
+
+def test_a_formation_tie_never_trades_the_only_keeper_for_an_outfielder():
+    """Final review #1: 1 POR, 4 DEF, 4 MED, 1 DEL can be completed by a DEL
+    (4-4-2) or a MED (4-5-1). The route-picked shortfall said DEL only, the
+    MED add was refused, and the top move sold the only goalkeeper."""
+    positions = ["POR"] + ["DEF"] * 4 + ["MED"] * 4 + ["DEL"]
+    squad = [_member(i + 1, pos) for i, pos in enumerate(positions)]
+    owned = [_p(m.player_id, m.position, mv=1_000_000, ppg=3.0) for m in squad]
+    med = _p(100, "MED", mv=2_000_000, ppg=9.0)
+    weak_del = _p(101, "DEL", mv=2_000_000, ppg=1.0)
+    moves = suggest_moves(squad, _assess([*owned, med, weak_del]), RULES, ceiling=None,
+                          freshness=_fresh(), jornadas=3)
+    assert moves[0].kind == "add" and moves[0].buy.player_id == 100
+    assert not any(m.sell and m.sell.player_id == 1 for m in moves)

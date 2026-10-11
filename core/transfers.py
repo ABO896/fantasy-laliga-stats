@@ -731,11 +731,10 @@ def suggest_moves(
         rows = [(m.player_id, m.position, er(m.player_id)) for m in squad]
         base, _ = best_xi(rows, rules)
         # An add only while the squad cannot field a full XI, and only for a
-        # player who fills a missing position and starts: once the XI is complete a better player
+        # player who closes part of that gap and starts: once the XI is complete a better player
         # comes in *for* someone, never beside him on the bench (owner,
         # 2026-10-08). First in the list, so on a tie it beats a swap.
         before = evaluate_squad(squad, rules)
-        missing = {pos for pos, n in before.missing_for_xi.items() if n > 0}
         sells: list[Assessment | None] = (
             [None] if not before.can_field_xi and len(squad) < rules.max_squad_size else []
         )
@@ -751,8 +750,7 @@ def suggest_moves(
                     continue
                 total, starters = best_xi([*kept, (buy.player_id, buy.position,
                                                    buy.expected_return)], rules)
-                if sell is None and (buy.position not in missing
-                                     or buy.player_id not in starters):
+                if sell is None and buy.player_id not in starters:
                     continue
                 xi_delta = total - base
                 gain = xi_delta * jornadas + buy.value_term - (sell.value_term if sell else 0.0)
@@ -762,7 +760,15 @@ def suggest_moves(
                     continue
                 candidate = _engine_member(buy, price_on(buy, price_basis) or 0)
                 verdict = check_move(squad, sell.player_id if sell else None, candidate, rules)
-                if verdict.allowed:
+                # An add must close part of the XI's shortfall under *some*
+                # formation — not just the one `missing_for_xi` happens to
+                # route through (final review #1: with 4-4-2 and 4-5-1 tied,
+                # a MED add was refused and the only keeper was sold instead).
+                fills = sell is not None or (
+                    verdict.resulting.can_field_xi
+                    or _missing(verdict.resulting) < _missing(before)
+                )
+                if verdict.allowed and fills:
                     best = (gain, sell, buy, xi_delta, buy.player_id in starters, verdict,
                             candidate)
         if best is None:
